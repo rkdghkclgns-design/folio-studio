@@ -1,0 +1,27 @@
+/* Cover controls and preview, using the same layer order as exported books. */
+.cover-controls{margin-top:24px}
+.cover-controls>.help{font-size:12px;line-height:1.8;color:#69765e}
+.cover-background-panel{margin:20px 0;padding:17px;border:1px dashed #bdcbb4;border-radius:8px;background:#f4f7ef}
+.cover-background-panel h3{font-size:13px;font-weight:600;margin:0 0 6px;color:#4c6343}
+.cover-background-panel .help{font-size:11px;color:#708063;margin:6px 0;line-height:1.8}
+.cover-background-thumb{width:80px;height:100px;object-fit:cover;margin:10px 0 0;border:1px solid #cad6c0;border-radius:4px}
+.cover-adjustments{gap:16px;margin:20px 0}
+.cover-adjustments label{font-size:12px;display:flex;align-items:center;justify-content:space-between}
+.cover-adjustments select{font-size:12px}
+.cover-adjustments output{font-variant-numeric:tabular-nums;color:#617a4f;font-size:11px}
+.cover-adjustments input[type=range]{padding:0;min-height:32px;accent-color:#526e44;border:0;background:transparent}
+.book-cover.cover-custom{padding:0;text-align:left}
+.book-cover.cover-custom:after{display:none}
+.book-cover.cover-custom .cover-image-full{z-index:0}
+.book-cover.cover-custom .cover-shade{position:absolute;inset:0;z-index:1;pointer-events:none}
+.book-cover.cover-custom .cover-copy-block{position:absolute;inset:0;padding:11% 9% 9%;width:auto;z-index:2;display:flex;flex-direction:column;overflow-wrap:anywhere;min-height:0}
+.book-cover.cover-custom .cover-overline{line-height:1.4;letter-spacing:1.7px;margin:0;position:relative}
+.book-cover.cover-custom .cover-heading{flex:1;display:flex;flex-direction:column;padding:8% 0;min-height:0}
+.book-cover.cover-custom .cover-title{font-size:23px;line-height:1.45;letter-spacing:-.6px;white-space:pre-wrap}
+.book-cover.cover-custom .cover-subtitle{font-size:8px;line-height:1.7;letter-spacing:0;opacity:.86;margin-top:9px;white-space:pre-wrap}
+.book-cover.cover-custom .cover-author{position:static;margin:0;font-size:7px;letter-spacing:1px;line-height:1.6}
+.book-cover.cover-custom.cover-layout-top .cover-heading{justify-content:flex-start}
+.book-cover.cover-custom.cover-layout-center .cover-heading{justify-content:center}
+.book-cover.cover-custom.cover-layout-bottom .cover-heading{justify-content:flex-end}
+.book-cover.cover-custom .cover-art{z-index:0}
+@media(max-width:700px){.cover-adjustments select{font-size:16px}.cover-adjustments input[type=range]{min-height:44px}.book-cover.cover-custom .cover-title{font-size:20px}.book-cover.cover-custom .cover-subtitle{font-size:7px}.cover-background-panel{padding:14px}.cover-controls .button{white-space:normal}}

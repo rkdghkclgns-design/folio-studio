@@ -1,0 +1,16 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.tar.gz
+*.zip
+.sites-runtime/
+.qa/
+
+companion/.venv/
+__pycache__/
+_site/
+
+# Local agent state and logs
+.bkit/
+.mswai/

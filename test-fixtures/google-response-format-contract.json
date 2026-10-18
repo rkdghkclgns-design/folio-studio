@@ -1,0 +1,32 @@
+{
+  "sourceUrl": "https://generativelanguage.googleapis.com/$discovery/rest?version=v1beta",
+  "retrievedDate": "2026-10-18",
+  "schemas": {
+    "TextResponseFormat": {
+      "mimeType": [
+        "MIME_TYPE_UNSPECIFIED",
+        "APPLICATION_JSON",
+        "TEXT_PLAIN"
+      ]
+    },
+    "ImageResponseFormat": {
+      "aspectRatio": [
+        "ASPECT_RATIO_UNSPECIFIED",
+        "ASPECT_RATIO_ONE_BY_ONE",
+        "ASPECT_RATIO_TWO_BY_THREE",
+        "ASPECT_RATIO_THREE_BY_TWO",
+        "ASPECT_RATIO_THREE_BY_FOUR",
+        "ASPECT_RATIO_FOUR_BY_THREE",
+        "ASPECT_RATIO_FOUR_BY_FIVE",
+        "ASPECT_RATIO_FIVE_BY_FOUR",
+        "ASPECT_RATIO_NINE_BY_SIXTEEN",
+        "ASPECT_RATIO_SIXTEEN_BY_NINE",
+        "ASPECT_RATIO_TWENTY_ONE_BY_NINE",
+        "ASPECT_RATIO_ONE_BY_EIGHT",
+        "ASPECT_RATIO_EIGHT_BY_ONE",
+        "ASPECT_RATIO_ONE_BY_FOUR",
+        "ASPECT_RATIO_FOUR_BY_ONE"
+      ]
+    }
+  }
+}
