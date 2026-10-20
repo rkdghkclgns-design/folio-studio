@@ -75,7 +75,8 @@ export function mountBookPreview(host, options = {}) {
   const title = String(options.title || '나의 책');
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   let pages = [], current = 0, spread = 1, destroyed = false, observer, resizeTimer, width = 0, heightBudget = 0, controlsHeight = 0;
-  let activeTurn = null;
+  let activeTurn = null, readinessSettled = false;
+  const imageDimensions = new Map(), pendingImages = new Set();
   const motionPreference = win.matchMedia?.('(prefers-reduced-motion: reduce)');
   let pointerStart = null, refreshing = false, originalPage = Math.max(0, Math.floor(Number(options.page) || 0));
   host.classList.add('folio-book-reader');
@@ -99,11 +100,23 @@ export function mountBookPreview(host, options = {}) {
       + (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
   };
   const measure = doc.createElement('div'); measure.className = 'folio-book-measure'; measure.setAttribute('aria-hidden', 'true'); measure.inert = true; host.append(measure);
+  const reserveImageSpace = element => {
+    for (const img of element.querySelectorAll('img')) {
+      if (img.style.aspectRatio) continue;
+      const explicitWidth = Number(img.getAttribute('width')), explicitHeight = Number(img.getAttribute('height'));
+      const size = explicitWidth > 0 && explicitHeight > 0 ? { width: explicitWidth, height: explicitHeight } : imageDimensions.get(img.getAttribute('src'));
+      // Cached bytes do not guarantee intrinsic dimensions on a newly parsed
+      // image during this synchronous layout pass. A fixed ratio keeps measure
+      // and visible clones identical; late loading replaces the provisional ratio.
+      img.style.aspectRatio = size ? size.width + ' / ' + size.height : '1 / 1';
+    }
+  };
   const pageElement = (page, index, side = '') => {
     const element = doc.createElement('article');
     element.className = `folio-book-page ${page.kind === 'cover' ? 'is-cover' : ''} ${side}`;
     element.setAttribute('aria-label', `${index + 1}쪽 · ${page.title}`);
     element.innerHTML = `<div class="folio-book-page-header">${escape(page.title)}</div><div class="folio-book-page-body ${page.kind === 'toc' ? 'toc' : ''}${page.overflow ? ' has-overflow' : ''}">${page.html}</div>${page.overflow ? '<p class="folio-book-overflow-note">긴 도표·문단은 이 페이지 안에서 스크롤할 수 있습니다.</p>' : ''}<div class="folio-book-page-footer">${index + 1}</div>`;
+    reserveImageSpace(element);
     if (page.overflow) { const body = element.querySelector('.folio-book-page-body'); body.tabIndex = 0; body.setAttribute('role', 'region'); body.setAttribute('aria-label', '긴 도표 또는 문단 전체 보기'); }
     return element;
   };
@@ -324,6 +337,7 @@ export function mountBookPreview(host, options = {}) {
       const base = { title: String(section.title || title), section: sectionIndex, kind: section.kind || 'chapter' };
       if (base.kind === 'cover') { pages.push({ ...base, html: String(section.html || '') }); return; }
       const template = doc.createElement('template'); template.innerHTML = String(section.html || '');
+      reserveImageSpace(template.content);
       const queue = [...template.content.childNodes].filter(node => node.nodeType === 1 || node.textContent.trim());
       const card = pageElement({ ...base, html: '' }, pages.length); measure.replaceChildren(card);
       const body = card.querySelector('.folio-book-page-body');
@@ -443,10 +457,25 @@ export function mountBookPreview(host, options = {}) {
   win.addEventListener('resize', refresh);
   // Decode every image before final pagination; hidden chapters count as well.
   const sources = [...new Set(sections.flatMap(section => { const template = doc.createElement('template'); template.innerHTML = String(section.html || ''); return [...template.content.querySelectorAll('img')].map(img => img.getAttribute('src')).filter(Boolean); }))];
-  const imagePromises = sources.map(src => new Promise(resolve => { const img = new win.Image(); const done = () => { img.onload = null; img.onerror = null; resolve(); }; img.onload = done; img.onerror = done; img.src = src; if (img.complete) done(); }));
-  let readinessTimer;
-  const ready = Promise.race([Promise.all([doc.fonts?.ready, ...imagePromises]), new Promise(resolve => { readinessTimer = win.setTimeout(resolve, 1600); })]).then(() => { win.clearTimeout(readinessTimer); if (!destroyed) paginate(); return getState(); });
-  const destroy = () => { if (destroyed) return; finishTurn(); motionPreference?.removeEventListener?.('change', motionChange); destroyed = true; win.clearTimeout(resizeTimer); win.clearTimeout(readinessTimer); observer?.disconnect(); win.removeEventListener('resize', refresh); host.removeEventListener('click', click); host.removeEventListener('change', change); host.removeEventListener('keydown', keydown); stage.removeEventListener('pointerdown', pointerdown); stage.removeEventListener('pointerup', pointerup); stage.removeEventListener('pointercancel', pointercancel); host.replaceChildren(); host.classList.remove('folio-book-reader'); };
+  const imagePromises = sources.map(src => new Promise(resolve => {
+    const img = new win.Image(); pendingImages.add(img);
+    const done = () => {
+      img.onload = null; img.onerror = null; pendingImages.delete(img);
+      if (destroyed) { resolve(); return; }
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) imageDimensions.set(src, { width: img.naturalWidth, height: img.naturalHeight });
+      resolve();
+      // The loading deadline keeps the UI responsive, but is not the last chance
+      // to paginate. An image arriving later still needs its real paper space.
+      if (readinessSettled) refresh();
+    };
+    img.onload = done; img.onerror = done; img.src = src; if (img.complete) done();
+  }));
+  const fontsReady = Promise.resolve(doc.fonts?.ready).catch(() => {});
+  fontsReady.then(() => { if (readinessSettled && !destroyed) refresh(); });
+  let readinessTimer, resolveDisposed;
+  const disposed = new Promise(resolve => { resolveDisposed = resolve; });
+  const ready = Promise.race([Promise.all([fontsReady, ...imagePromises]), disposed, new Promise(resolve => { readinessTimer = win.setTimeout(resolve, 1600); })]).then(() => { win.clearTimeout(readinessTimer); readinessSettled = true; if (!destroyed) paginate(); return getState(); });
+  const destroy = () => { if (destroyed) return; finishTurn(); motionPreference?.removeEventListener?.('change', motionChange); destroyed = true; resolveDisposed(); pendingImages.forEach(img => { img.onload = null; img.onerror = null; }); pendingImages.clear(); win.clearTimeout(resizeTimer); win.clearTimeout(readinessTimer); observer?.disconnect(); win.removeEventListener('resize', refresh); host.removeEventListener('click', click); host.removeEventListener('change', change); host.removeEventListener('keydown', keydown); stage.removeEventListener('pointerdown', pointerdown); stage.removeEventListener('pointerup', pointerup); stage.removeEventListener('pointercancel', pointercancel); host.replaceChildren(); host.classList.remove('folio-book-reader'); };
   return { next: turnNext, prev: turnPrevious, goTo, goToSection, refresh, destroy, getState, ready };
 }
 
