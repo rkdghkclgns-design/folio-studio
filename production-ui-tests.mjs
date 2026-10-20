@@ -26,7 +26,8 @@ test('production brief saves before API work and labels every editable input', (
   assert.equal(form.querySelector('[name=title]').required,false);
   assert.equal(form.querySelector('[name=sourceMarkdown]').maxLength,120000);
   assert.equal(form.querySelector('[name=targetValue]').value,'30000');
-  assert.equal(form.querySelector('[name=illustrations]').value,'design');
+  assert.equal(form.querySelector('[name=illustrations]').value,'hybrid');
+  assert.equal(form.querySelector('[name=diagrams]').value,'none');
   assert.equal(doc.querySelector('#production-source-name').getAttribute('aria-live'),'polite');
   assert.equal(doc.querySelector('#production-feedback').getAttribute('role'),'alert');
   assert.match(doc.body.textContent,/예상 시간·비용을 확인하고 승인해야/);

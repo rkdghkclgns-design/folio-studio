@@ -1,3 +1,4 @@
+import {visualProgress} from './visual-workflow.js';
 // Pure view helpers. Saving drafts, source files and API work belong to app.js.
 import {describeBookLength, formatMoneyRange, formatDurationRange, ESTIMATE_REFERENCES} from './production-estimate.js';
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -51,14 +52,14 @@ function reviewState(project, progress) {
   const actualChars = numeric(detail.actualChars);
   const percent = Math.min(100, Math.max(0, numeric(detail.percent)));
   const artwork = object(production.artwork);
-  const artworkPending = brief.illustrations !== 'none' && ['complete','needs_review'].includes(status) && artwork.status !== 'complete';
+  const artworkPending = brief.illustrations !== 'none' && brief.illustrations !== 'hybrid' && ['complete','needs_review'].includes(status) && artwork.status !== 'complete';
   return {project:p, production, brief, detail, status, target, completedChapters, totalChapters, actualChars, percent, artwork, artworkPending};
 }
 
 export function renderProductionForm(draft = {}) {
   const brief = object(draft);
   const {pages, value, chars, estimatedPages} = targetDetails(brief);
-  const illustrations = ['design','ai','none'].includes(brief.illustrations) ? brief.illustrations : 'design';
+  const illustrations = ['hybrid','design','ai','none'].includes(brief.illustrations) ? brief.illustrations : 'hybrid';
   return `<div class="production-intro">
     <p>주제와 자료, 원하는 방향을 적어 주세요. 목차를 나누고 목표 분량에 맞춰 한 장씩 씁니다.</p>
     <ol class="production-path" aria-label="책 제작 순서"><li aria-current="step"><span>1</span>조건 입력</li><li><span>2</span>검토 · 연결</li><li><span>3</span>책 제작</li></ol>
@@ -97,8 +98,8 @@ export function renderProductionForm(draft = {}) {
         <p class="production-length-reference">글 중심 단행본 쪽당 600~1,000자 가정 · 30,000자는 약 30~50쪽의 작은 실용서입니다. 200쪽 책의 약 19% 분량(800자/쪽 기준)으로 생각해 보세요.</p>
         <p class="production-pagination-note">목표의 ±10% 범위를 기준으로 분량을 맞추고, 벗어난 부분은 검토 대상으로 남깁니다. 쪽수는 분량을 정하기 위한 참고값입니다. EPUB은 읽기 설정에 따라, PDF는 글꼴과 여백에 따라 실제 쪽수가 달라집니다.</p>
         <div class="field"><label for="production-chapters">장 수 · 챕터</label><input id="production-chapters" name="chapterCount" type="number" min="0" max="300" step="1" value="${numeric(brief.chapterCount)}" inputmode="numeric" aria-describedby="production-chapters-help production-chapter-budget"><small id="production-chapters-help">0이면 자동 구성 · 직접 정할 때는 2~300장<br>한 장에 최소 500자 · 300장은 최소 150,000자가 필요합니다.</small><p id="production-chapter-budget" class="production-budget-note" role="status" aria-live="polite"></p><button type="button" class="button secondary small" data-action="production-fit-length" hidden>최소 분량 적용</button></div>
-        <div class="field full"><label for="production-diagrams">설명에 필요한 도표</label><select id="production-diagrams" name="diagrams" aria-describedby="production-diagrams-help">${option('auto','문맥에 맞게 자동 판단',brief.diagrams==='none'?'none':'auto')}${option('none','새 도표 생성 안 함',brief.diagrams==='none'?'none':'auto')}</select><small id="production-diagrams-help">비교표·흐름도·막대 및 꺾은선 차트를 필요한 문단에 넣습니다. 수치 차트는 자료에 근거가 있을 때만 만들며, 별도 이미지 API를 사용하지 않습니다.</small></div>
-        <div class="field"><label for="production-illustrations">표지와 삽화</label><select id="production-illustrations" name="illustrations">${option('design','디자인 삽화 · 이미지 API 사용 안 함',illustrations)}${option('ai','AI 이미지 · 표지 1장 + 본문 최대 2장',illustrations)}${option('none','그림 없이 시작',illustrations)}</select><small>AI 이미지를 고르면 별도 생성 비용이 발생할 수 있습니다.</small></div>
+        <div class="field full"><label for="production-diagrams">설명에 필요한 도표</label><select id="production-diagrams" name="diagrams" aria-describedby="production-diagrams-help">${option('auto','문맥에 맞게 자동 판단',(brief.diagrams==='none'||(brief.diagrams===undefined&&illustrations==='hybrid'))?'none':'auto')}${option('none','집필 중 도표 생성 안 함 · Claude SVG로 후속 보강',(brief.diagrams==='none'||(brief.diagrams===undefined&&illustrations==='hybrid'))?'none':'auto')}</select><small id="production-diagrams-help">비교표·흐름도·막대 및 꺾은선 차트를 필요한 문단에 넣습니다. 수치 차트는 자료에 근거가 있을 때만 만들며, 별도 이미지 API를 사용하지 않습니다.</small></div>
+        <div class="field"><label for="production-illustrations">표지와 삽화</label><select id="production-illustrations" name="illustrations">${option('hybrid','Claude SVG + ChatGPT·Codex 내장 삽화 · 기본',illustrations)}${option('design','디자인 삽화 · 이미지 API 사용 안 함',illustrations)}${option('ai','AI 이미지 · 표지 1장 + 본문 최대 2장',illustrations)}${option('none','그림 없이 시작',illustrations)}</select><small>기본 방식은 집필 후 제작 요청서로 Claude·ChatGPT·Codex에서 만들고 결과를 가져옵니다. ‘AI 이미지’는 별도 API 요금 방식입니다.</small></div>
       </div>
     </fieldset>
     <p id="production-feedback" class="production-feedback" role="alert" hidden></p>
@@ -124,6 +125,7 @@ function requestEstimate(detail, brief) {
 }
 
 function artworkMarkup(state) {
+  if(state.brief.illustrations==='hybrid'){const v=visualProgress(state.project);return `<div class="production-artwork-status"><strong>Claude SVG · 내장 생성 삽화</strong><span>${v.chapters} / ${v.total}개 장 보강</span><p>본문 집필 후 제작 요청서와 결과 가져오기로 보강합니다. 그림 제작은 별도 단계입니다.</p><button class="button secondary" data-action="visual-workflow">도표·삽화 제작</button></div>`;}
   if (state.brief.illustrations === 'none' || state.status === 'ready') return '';
   const artwork = state.artwork;
   const max = state.brief.illustrations === 'ai' ? 3 : 2;
@@ -142,7 +144,7 @@ export function renderProductionSummary(project, progress = {}) {
   const canStart = !detail.integrityError && (status === 'ready' || resumable || state.artworkPending);
   const source = String(brief.sourceMarkdown ?? '');
   const sourceCount = Math.max(0, numeric(detail.totalSources) - numeric(detail.totalImages));
-  const illustration = brief.illustrations === 'ai' ? 'AI 표지 1장 + 본문 최대 2장' : brief.illustrations === 'none' ? '그림 없이 시작' : '디자인 삽화';
+  const illustration = brief.illustrations === 'hybrid' ? 'Claude SVG + ChatGPT·Codex 내장 삽화 · 집필 후 보강' : brief.illustrations === 'ai' ? 'AI 표지 1장 + 본문 최대 2장' : brief.illustrations === 'none' ? '그림 없이 시작' : '디자인 삽화';
   return `<div class="production-summary" data-production-status="${status}">
     <div class="production-review-head"><span class="production-status-badge is-${status}">${statusLabels[status]}</span><h3>${escapeHTML(state.project.title || brief.title || '새 책의 제작 조건')}</h3><p>${escapeHTML(brief.topic || (brief.sourceImages?.length ? '이미지와 원시 자료를 바탕으로 책을 구성합니다.' : '자료를 바탕으로 책을 구성합니다.'))}</p></div>
     <dl class="production-metrics"><div><dt>목표 본문</dt><dd>${numberText(target.chars)}<span>자</span></dd><dd class="production-metric-note">공백 제외 · 약 ${numberText(target.estimatedPages)}쪽 기준</dd></div><div><dt>${started ? '현재 본문' : '예상 구성'}</dt><dd>${numberText(started ? actualChars : totalChapters)}<span>${started ? '자' : '장'}</span></dd><dd class="production-metric-note">${started ? `${numberText(state.completedChapters)} / ${numberText(totalChapters)}장 작성` : '집필 전에 장별 분량을 나눕니다'}</dd></div></dl>
@@ -179,7 +181,7 @@ export function renderProductionApproval(project, estimate) {
 
 /** Actual saved checkpoints drive the bar; elapsed time never invents progress. */
 export function renderProductionLiveProgress(project, progress={}, estimate, {elapsedMs=0}={}) {
-  const p=project.production||{}, artwork=p.artwork||{}, needsArt=p.brief?.illustrations!=='none';
+  const p=project.production||{}, artwork=p.artwork||{}, needsArt=!['none','hybrid'].includes(p.brief?.illustrations);
   const totalArt=p.brief?.illustrations==='ai'?3:2;
   const doneArt=Math.min(totalArt,new Set(artwork.completed||[]).size);
   const artRatio=artwork.status==='complete'?1:doneArt/totalArt;

@@ -142,14 +142,22 @@ async function approveStart(app) {
   await app.click('[data-action="production-approve"]');
 }
 
+async function requestApiDiagram(app) {
+  await app.click('[data-action="chapter-diagram"]');
+  const advanced=app.$('.modal [data-action="chapter-diagram-api"]').closest('details');
+  if(advanced&&!advanced.open)await app.click('.modal details summary');
+  await app.click('.modal [data-action="chapter-diagram-api"]');
+}
+
 async function waitForTask(app) {
   await app.until(() => !document.querySelector('.modal'), 'Diagram task did not finish');
 }
 
-test('automatic diagram preference defaults on and persists off through editing, reload and backup without API requests', async t => {
+test('hybrid diagram preference defaults off and persists through editing, reload and backup without API requests', async t => {
   const app = await boot(t);
   await app.click('[data-action="production-new"]');
-  assert.equal(app.$('#production-diagrams option[selected]').value, 'auto');
+  assert.equal(app.$('#production-diagrams option[selected]').value, 'none');
+  assert.equal(app.$('#production-illustrations option[selected]').value, 'hybrid');
   assert.equal(app.$('#production-chapters').max, '300');
   await app.key('Escape');
   await newBrief(app, 'none');
@@ -166,10 +174,10 @@ test('automatic diagram preference defaults on and persists off through editing,
   assert.equal(app.requests.length, 0);
 });
 
-test('manual diagram action without an API key opens settings and preserves manuscript and history', async t => {
+test('explicit API diagram action without an API key opens settings and preserves manuscript and history', async t => {
   const app = await boot(t, { workspace: manuscriptWorkspace() });
   const before = structuredClone(app.saved());
-  await app.click('[data-action="chapter-diagram"]');
+  await requestApiDiagram(app);
   assert.ok(app.$('#ai-form'));
   assert.equal(app.current().chapters[0].content, sourceContent);
   assert.deepEqual(app.saved().histories, before.histories);
@@ -184,7 +192,7 @@ test('one explicit diagram request inserts a grounded chart after its paragraph 
     assert.equal(payload.book.title, '작은 가게의 기록');
     return { needed: true, reason: '같은 단위로 기록한 두 계절의 매출을 비교할 수 있습니다.', anchor: paragraph, diagram: bar };
   });
-  await app.click('[data-action="chapter-diagram"]'); await waitForTask(app);
+  await requestApiDiagram(app); await waitForTask(app);
   const content = app.current().chapters[0].content;
   const { parseDiagramBlocks } = await import('./dist/diagrams.js');
   const diagrams = parseDiagramBlocks(content, { strict: true });
@@ -217,7 +225,7 @@ test('an unnecessary diagram returns its reason without editing or creating a hi
   const reason = '이 문단은 짧은 서술로 충분합니다. <img src=x onerror=alert(1)>';
   connectMock(app, () => ({ needed: false, reason, anchor: '', diagram: null }));
   const before = structuredClone(app.saved());
-  await app.click('[data-action="chapter-diagram"]'); await waitForTask(app);
+  await requestApiDiagram(app); await waitForTask(app);
   assert.equal(app.current().chapters[0].content, sourceContent);
   assert.deepEqual(app.saved().histories, before.histories);
   assert.ok(app.$('#toast-region').textContent.includes(reason));
@@ -237,7 +245,7 @@ test('unsupported chart data and missing insertion anchors cannot change a manus
   connectMock(app, () => invalid[index++]);
   const before = structuredClone(app.saved());
   for (const _ of invalid) {
-    await app.click('[data-action="chapter-diagram"]');
+    await requestApiDiagram(app);
     await app.until(() => document.querySelector('.modal [data-action="close-modal"]'), 'Invalid response should fail visibly');
     assert.equal(app.current().chapters[0].content, sourceContent);
     assert.deepEqual(app.saved().histories, before.histories);
@@ -254,7 +262,7 @@ test('cancellation blocks duplicate requests and preserves the manuscript and hi
     return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new DOMException('Cancelled', 'AbortError')), { once: true }));
   });
   const before = structuredClone(app.saved());
-  await app.click('[data-action="chapter-diagram"]'); await app.until(() => signal);
+  await requestApiDiagram(app); await app.until(() => signal);
   await app.click('[data-action="chapter-diagram"]');
   await app.input('#manuscript-text', '진행 중인 요청에 섞이면 안 되는 편집');
   assert.equal(app.requests.length, 1);
@@ -270,7 +278,7 @@ test('a late response after cancellation cannot insert a chart or checkpoint', a
   let finish;
   connectMock(app, () => new Promise(resolve => { finish = resolve; }));
   const before = structuredClone(app.saved());
-  await app.click('[data-action="chapter-diagram"]'); await app.until(() => finish);
+  await requestApiDiagram(app); await app.until(() => finish);
   await app.click('.modal [data-action="cancel-operation"]');
   finish({ needed: true, reason: '비교', anchor: paragraph, diagram: bar });
   await app.until(() => document.querySelector('.modal [data-action="close-modal"]'));
@@ -377,7 +385,7 @@ test('an explicit current-chapter request remains available when automatic diagr
     assert.equal(payload.book.diagrams, 'none');
     return { needed: true, reason: '직접 요청한 비교표', anchor: paragraph, diagram: table };
   });
-  await app.click('[data-action="chapter-diagram"]'); await waitForTask(app);
+  await requestApiDiagram(app); await waitForTask(app);
   assert.ok(app.current().chapters[0].content.includes('folio-diagram'));
   assert.equal(app.current().production.brief.diagrams, 'none');
   assert.equal(app.requests.length, 1);
@@ -392,8 +400,83 @@ test('malformed saved diagram data remains visible as inert source and blocks pa
   assert.equal(document.querySelector('.read-content script'), null);
   assert.ok(app.$('.read-content').textContent.includes('원본 데이터'));
   connectMock(app);
-  await app.click('[data-action="chapter-diagram"]');
+  await requestApiDiagram(app);
   await app.until(() => app.$('#toast-region').textContent.includes('도표 형식'));
   assert.equal(app.current().chapters[0].content, content);
   assert.equal(app.requests.length, 0);
+});
+
+
+test('default diagram handoff preserves the manuscript and makes no request even with a connected API', async t => {
+  const app=await boot(t,{workspace:manuscriptWorkspace()});
+  const before=structuredClone(app.saved());
+  for(const connected of [false,true]){
+    if(connected)connectMock(app);
+    await app.click('[data-action="chapter-diagram"]');
+    assert.ok(app.$('.modal [data-action="visual-brief"]'));
+    assert.ok(app.$('.modal [data-action="visual-import"]'));
+    assert.match(app.$('.modal').textContent,/Claude SVG/);
+    assert.match(app.$('.modal').textContent,/ChatGPT·Codex/);
+    assert.equal(document.querySelector('#ai-form'),null);
+    assert.equal(app.current().chapters[0].content,sourceContent);
+    assert.deepEqual(app.saved().histories,before.histories);
+    assert.equal(app.requests.length,0);
+    await app.key('Escape');
+  }
+});
+
+
+async function visualResultFor(project, svg) {
+  const { visualChapterHash } = await import('./dist/visual-workflow.js');
+  const c=project.chapters[0];
+  return {format:'folio-visual-assets',version:1,book:{title:project.title,author:project.author},assets:[{chapterId:c.id,chapterTitle:c.title,chapterHash:await visualChapterHash(c),kind:'diagram',figure:{id:'pasted-visual-example',src:'data:image/svg+xml,'+encodeURIComponent(svg),alt:'두 계절의 기록을 비교하는 설명 도표',caption:'본문 설명을 보조하는 예시',provenance:{provider:'claude-svg',createdAt:'2026-10-21T00:00:00.000Z',prompt:'본문의 두 기록 방식을 도표로 비교하세요.'}}}]};
+}
+const pastedDiagramSvg='<svg xmlns="http://www.w3.org/2000/svg" width="600" height="280" viewBox="0 0 600 280"><title>두 계절의 기록</title><text x="30" y="50" font-size="24">봄 기록 → 여름 기록</text></svg>';
+async function pasteVisualResult(app,text){
+  const input=app.$('#visual-result-paste'),details=input.closest('details');
+  if(!details.open){details.querySelector('summary').click();await app.settle();}
+  await app.input('#visual-result-paste',text);
+  await app.click('[data-action="visual-paste"]');
+}
+
+test('visual result paste reviews first, applies only on its button and retains the original book across reload', async t => {
+  const app=await boot(t,{workspace:manuscriptWorkspace()}),before=structuredClone(app.saved()),original=app.current();
+  const result=await visualResultFor(original,pastedDiagramSvg),json=JSON.stringify(result);
+  await app.click('[data-action="chapter-diagram"]');
+  await pasteVisualResult(app,json);
+  await app.until(()=>document.querySelector('[data-action="visual-apply"]'),'Visual result review did not open');
+  assert.match(app.$('.modal').textContent,/새 그림 1개/);
+  assert.ok(app.$('.visual-import-list img').getAttribute('src').startsWith('data:image/svg+xml;base64,'));
+  assert.deepEqual(app.saved().projects,before.projects,'Review alone must not change the book');
+  assert.deepEqual(app.saved().histories,before.histories);
+  await app.click('[data-action="visual-apply"]');
+  await app.until(()=>!document.querySelector('.modal'),'Applied result should return to the book');
+  const applied=app.current();
+  assert.equal(applied.id,original.id);assert.equal(app.saved().projects.length,before.projects.length);
+  assert.equal(applied.chapters[0].content,sourceContent+'\n\n![두 계절의 기록을 비교하는 설명 도표](folio-asset:pasted-visual-example)');
+  assert.equal(applied.chapters[0].figures.length,1);assert.deepEqual(applied.chapters[0].figures[0].provenance,result.assets[0].figure.provenance);
+  assert.deepEqual(applied.chapters[1],original.chapters[1]);assert.deepEqual(applied.bookMatter,original.bookMatter);
+  const history=app.saved().histories[original.id];assert.equal(history[0].project.chapters[0].content,sourceContent);
+  assert.match(app.$('.visual-workflow').textContent,/1 \/ 2개 장 보강/);
+  assert.equal(app.requests.length,0);
+  await app.restart();assert.equal(app.current().id,original.id);assert.deepEqual(app.current().chapters,applied.chapters);
+  await app.click('[data-action="chapter-diagram"]');await pasteVisualResult(app,json);
+  await app.until(()=>document.querySelector('[data-action="visual-apply"]'));
+  assert.match(app.$('.modal').textContent,/새 그림 0개 · 이미 적용된 그림 1개/);
+  await app.click('[data-action="visual-apply"]');await app.until(()=>!document.querySelector('.modal'));
+  assert.deepEqual(app.current().chapters,applied.chapters);assert.equal(app.saved().histories[original.id].length,history.length);assert.equal(app.requests.length,0);
+});
+
+test('malformed pasted JSON and active SVG show a safe error without opening apply or changing a book', async t => {
+  const app=await boot(t,{workspace:manuscriptWorkspace()}),before=structuredClone(app.saved());
+  const unsafe=await visualResultFor(app.current(),'<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>');
+  await app.click('[data-action="chapter-diagram"]');
+  for(const text of ['', '{"assets":<img src=x onerror=alert(1)>}', JSON.stringify(unsafe)]){
+    await pasteVisualResult(app,text);
+    await app.until(()=>document.querySelector('#toast-region .error'),'Invalid pasted content should fail visibly');
+    assert.equal(document.querySelector('[data-action="visual-apply"]'),null);
+    assert.ok(app.$('#visual-result-paste'));
+    assert.equal(document.querySelector('#toast-region img'),null);assert.equal(document.querySelector('#toast-region script'),null);
+    assert.deepEqual(app.saved().projects,before.projects);assert.deepEqual(app.saved().histories,before.histories);assert.equal(app.requests.length,0);
+  }
 });

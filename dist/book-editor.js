@@ -1,5 +1,5 @@
 /** Scoped manuscript editing: shared by the workspace and the book preview dialog. */
-import { validateChapterFigures, validateImageSource } from './export.js';
+import { validateChapterFigures, validateImageSource, validateImageProvenance } from './export.js';
 import { parseDiagramBlocks, serializeDiagram, validateDiagram } from './diagrams.js';
 import { normalizeMediaPresentation } from './media-style.js';
 
@@ -32,7 +32,7 @@ function imageValue(image, raster = false) {
   for (const [key, limit] of [['alt', 2000], ['caption', 4000]]) {
     if (image[key] !== undefined && (typeof image[key] !== 'string' || image[key].length > limit)) throw new Error('이미지 설명이 올바르지 않습니다.');
   }
-  return { src, alt: image.alt || '삽화', caption: image.caption || '', ...(image.presentation ? { presentation: normalizeMediaPresentation(image.presentation) } : {}) };
+  return { src, alt: image.alt || '삽화', caption: image.caption || '', ...(image.presentation ? { presentation: normalizeMediaPresentation(image.presentation) } : {}), ...(image.provenance === undefined ? {} : { provenance: validateImageProvenance(image.provenance) }) };
 }
 
 /** The text fallback is portable across tabs/books even when custom clipboard MIME is blocked. */

@@ -67,7 +67,7 @@ export function normalizeProductionBrief(value = {}) {
   const language = value.language ?? 'ko';
   if (!['ko', 'en', 'ja'].includes(language)) fail('지원하는 책 언어를 선택해 주세요.');
   const illustrations = value.illustrations ?? 'design';
-  if (!['design', 'ai', 'none'].includes(illustrations)) fail('삽화 방식을 확인해 주세요.');
+  if (!['hybrid', 'design', 'ai', 'none'].includes(illustrations)) fail('삽화 방식을 확인해 주세요.');
   const brief = {
     topic: text(value.topic, 4000, '주제'),
     title: text(value.title, 200, '책 제목'),

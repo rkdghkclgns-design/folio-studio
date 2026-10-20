@@ -524,7 +524,26 @@ export function validateImageSource(src) {
   return `data:${asset.mime};base64,${bytesToBase64(asset.bytes)}`;
 }
 
-/** Chapter screenshots are portable raster data, never URLs or active artwork. */
+/** Creation records are data only; provider labels never bypass image validation. */
+export function validateImageProvenance(value) {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+      || !['claude-svg', 'codex-imagegen'].includes(value.provider)) {
+    throw new Error('이미지 제작 도구 기록이 올바르지 않습니다.');
+  }
+  if (typeof value.createdAt !== 'string' || value.createdAt.length > 40
+      || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value.createdAt)
+      || !Number.isFinite(Date.parse(value.createdAt))
+      || new Date(value.createdAt).toISOString() !== value.createdAt.replace(/(T\d{2}:\d{2}:\d{2})Z$/, '$1.000Z')) {
+    throw new Error('이미지 제작 날짜는 유효한 UTC 날짜여야 합니다.');
+  }
+  if (value.prompt !== undefined && (typeof value.prompt !== 'string' || value.prompt.length > 12000)) {
+    throw new Error('이미지 제작 지시는 12,000자 이하의 텍스트여야 합니다.');
+  }
+  return { provider: value.provider, createdAt: value.createdAt, ...(value.prompt === undefined ? {} : { prompt: clean(value.prompt).trim() }) };
+}
+
+/** Portable raster images or sanitized inert SVG; never URLs or active artwork. */
 export function validateChapterFigures(value) {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > 20) throw new Error('한 장에는 화면 예시를 최대 20개 넣을 수 있습니다.');
@@ -534,11 +553,11 @@ export function validateChapterFigures(value) {
       throw new Error('화면 예시의 식별자가 올바르지 않거나 중복되었습니다.');
     }
     ids.add(image.id);
-    if (typeof image.src !== 'string' || !/^data:image\/(?:png|jpe?g|webp);base64,/i.test(image.src)) throw new Error('화면 예시는 PNG, JPEG, WebP 이미지 파일만 사용할 수 있습니다.');
+    if (typeof image.src !== 'string') throw new Error('본문 이미지는 PNG, JPEG, WebP 또는 안전한 SVG 파일을 사용해 주세요.');
     for (const [field, limit] of [['alt', 2000], ['caption', 4000]]) {
       if (image[field] !== undefined && (typeof image[field] !== 'string' || image[field].length > limit)) throw new Error('화면 예시의 설명이 올바르지 않거나 너무 깁니다.');
     }
-    return { id: image.id, src: validateImageSource(image.src), alt: clean(image.alt).trim() || '화면 예시', caption: clean(image.caption).trim(), ...(image.presentation === undefined ? {} : { presentation: normalizeMediaPresentation(image.presentation) }) };
+    return { id: image.id, src: validateImageSource(image.src), alt: clean(image.alt).trim() || '화면 예시', caption: clean(image.caption).trim(), ...(image.presentation === undefined ? {} : { presentation: normalizeMediaPresentation(image.presentation) }), ...(image.provenance === undefined ? {} : { provenance: validateImageProvenance(image.provenance) }) };
   });
 }
 
@@ -672,7 +691,7 @@ async function prepareImages(project, epub) {
       assets.push(asset); cache.set(image.src, asset);
     }
     if (isCover) asset.cover = true;
-    return { ...asset, alt: clean(image.alt || (isCover ? project.title : '삽화')), caption: clean(image.caption), ...(image.presentation === undefined ? {} : { presentation: normalizeMediaPresentation(image.presentation) }) };
+    return { ...asset, alt: clean(image.alt || (isCover ? project.title : '삽화')), caption: clean(image.caption), ...(image.presentation === undefined ? {} : { presentation: normalizeMediaPresentation(image.presentation) }), ...(image.provenance === undefined ? {} : { provenance: validateImageProvenance(image.provenance) }) };
   };
   const presentation = getCoverPresentation(project);
   const composed = epub && (project.coverDesign !== undefined || Boolean(project.coverBackground?.src));
@@ -831,6 +850,10 @@ export async function buildEpub(input) {
   const chapterFile = index => `chapter-${String(index + 1).padStart(3, '0')}.xhtml`;
   const numbers = chapterNumbers(project.chapters), firstBody = project.chapters.findIndex(chapter => !UNNUMBERED_KINDS.has(chapter.kind));
   const chapterMarkup = project.chapters.map((chapter, index) => renderMarkdownWithFigures(chapter.content, figures[index]));
+  // SVG referenced by img is also declared, so readers can select SVG-capable rendering.
+  const chapterUsesSvg = chapterMarkup.map((markup, index) => /<svg(?:\s|>)/.test(markup)
+    || images[index]?.mime === 'image/svg+xml'
+    || [...figures[index].values()].some(asset => asset.mime === 'image/svg+xml' && markup.includes('src="' + escape(asset.path) + '"')));
   const nav = `<nav epub:type="toc" id="toc" class="toc" role="doc-toc"><h1 id="toc-heading">목차</h1><ol>${project.chapters.length ? project.chapters.map((chapter, index) => `<li><a href="${chapterFile(index)}">${escape(chapter.title)}</a></li>`).join('') : '<li><a href="title.xhtml">책 소개</a></li>'}</ol></nav>
 <nav epub:type="landmarks" hidden="hidden"><h2>책의 구성</h2><ol><li><a epub:type="cover" href="cover.xhtml">표지</a></li><li><a epub:type="toc" href="nav.xhtml#toc">목차</a></li>${project.chapters.length ? `<li><a epub:type="bodymatter" href="${chapterFile(Math.max(0, firstBody))}">본문</a></li>` : ''}</ol></nav>`;
   const manifest = [
@@ -839,7 +862,7 @@ export async function buildEpub(input) {
     '<item id="titlepage" href="title.xhtml" media-type="application/xhtml+xml"/>',
     '<item id="style" href="styles/book.css" media-type="text/css"/>',
     ...assets.map(asset => `<item id="${asset.id}" href="${asset.path}" media-type="${asset.mime}"${asset.cover ? ' properties="cover-image"' : ''}/>`),
-    ...project.chapters.map((_, index) => `<item id="chapter-${index + 1}" href="${chapterFile(index)}" media-type="application/xhtml+xml"${/<svg(?:\s|>)/.test(chapterMarkup[index]) ? ' properties="svg"' : ''}/>`),
+    ...project.chapters.map((_, index) => `<item id="chapter-${index + 1}" href="${chapterFile(index)}" media-type="application/xhtml+xml"${chapterUsesSvg[index] ? ' properties="svg"' : ''}/>`),
   ];
   // Describe generated structure without claiming audited WCAG/EPUB accessibility.
   // Every edition has a visual cover; prose remains selectable/reflowable text.

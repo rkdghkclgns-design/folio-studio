@@ -37,12 +37,12 @@ test('chapter figures are bounded, canonical raster data with copied plain-text 
   }
 });
 
-test('figure validation and rendering reject remote, local-path, SVG and corrupt data without fetching', async () => {
+test('figure validation and rendering reject remote, local-path, active SVG and corrupt data without fetching', async () => {
   const previous = globalThis.fetch;
   let calls = 0;
   globalThis.fetch = async () => { calls++; throw new Error('No network is permitted for image export'); };
   try {
-    for (const src of ['https://example.org/private.png', '//example.org/private.png', 'file:///secret.png', 'blob:https://example.org/id', 'images/image-1.png', 'javascript:alert(1)', 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg"/>'), 'data:image/png;base64,aW52YWxpZA==']) {
+    for (const src of ['https://example.org/private.png', '//example.org/private.png', 'file:///secret.png', 'blob:https://example.org/id', 'images/image-1.png', 'javascript:alert(1)', 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>'), 'data:image/png;base64,aW52YWxpZA==']) {
       const figures = [{ ...screenshot(), src }];
       assert.throws(() => validateChapterFigures(figures));
       assert.throws(() => renderMarkdown('![화면](folio-asset:step_1)', { figures }));
