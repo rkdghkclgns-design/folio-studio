@@ -1,14 +1,34 @@
 import { normalizePublication, publicationReadiness, publicationFingerprint, buildPublicationPackage, publicationGuide, PUBLICATION_LINKS, PUBLICATION_REVIEW_DATE, publicationFieldMap, recordPublicationVersion, DISTRIBUTION_STATUS, ISBN_STATUS, DEPOSIT_STATUS } from './publication.js';
 import { downloadBlob } from './export.js';
 import { createPublicationCover, coverFingerprint } from './publication-cover.js';
+import { publicationCheckHelp, PUBLICATION_GLOSSARY, PUBLICATION_IMAGE_OPTIONS, PUBLICATION_BUSINESS_HELP, PUBLISHING_HELP_LINKS, PUBLISHING_HELP_REVIEW_DATE } from './publication-help.js';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const statusName = { pass: '확인', warning: '검토 필요', block: '필수 수정', external: '외부 확인' };
 const input = (m, name, label, attributes = '') => `<label>${label}<input name="${name}" value="${esc(m[name])}" ${attributes}></label>`;
+const helpLinks = links => `<div class="publication-links">${links.map(link => {
+  const item = typeof link === 'string' ? PUBLISHING_HELP_LINKS[link] : link;
+  if (!item) return '';
+  try { const url = new URL(item.url); if (url.protocol !== 'https:' || url.username || url.password) return ''; } catch { return ''; }
+  return `<a href="${esc(item.url)}" target="_blank" rel="noopener noreferrer">${esc(item.label)} <span aria-hidden="true">↗</span><span class="publication-link-hint"> (새 탭)</span></a>`;
+}).join('')}</div>`;
+
+function renderCheckHelp(check, channel) {
+  const info = publicationCheckHelp(check.id, channel);
+  return info ? `<details class="publication-check-help" data-publication-help="${esc(check.id)}"><summary>뜻과 진행 방법</summary><dl><dt>${esc(info.term)}</dt><dd>${esc(info.meaning)}</dd><dt>어디서</dt><dd>${esc(info.where)}</dd><dt>할 일</dt><dd>${esc(info.action)}</dd></dl>${helpLinks(info.links)}</details>` : '';
+}
+
+function renderPublishingResources() {
+  const business = PUBLICATION_BUSINESS_HELP;
+  return `<details class="publication-details publication-reference"><summary>쉬운 출판 용어</summary><dl class="publication-glossary">${PUBLICATION_GLOSSARY.map(([term, meaning]) => `<div><dt>${esc(term)}</dt><dd>${esc(meaning)}</dd></div>`).join('')}</dl></details>
+  <details class="publication-details publication-reference"><summary>출판사 신고·사업자등록은 어디서 하나요?</summary><p class="publication-note">${esc(business.text)}</p><p class="publication-note">${esc(business.tax)}</p><p class="publication-note">${esc(business.action)}</p>${helpLinks(business.links)}</details>
+  <details class="publication-details publication-reference"><summary>삽화를 무료·기존 구독 범위에서 준비하기</summary><p class="publication-note">출처 표기만으로 이용 허락이 생기지는 않습니다. 무료 이미지도 파일별 조건과 허락 증빙을 확인하세요.</p><ol class="publication-image-options">${PUBLICATION_IMAGE_OPTIONS.map(option => `<li><h3>${esc(option.title)}</h3><p class="publication-help-cost">${esc(option.cost)}</p><p class="publication-note">${esc(option.text)}</p>${helpLinks(option.links)}</li>`).join('')}</ol><p class="publication-note">Folio에서 외부 API 키로 호출하는 생성은 해당 API 요금 체계를 따릅니다. 구독 사용량과 자동으로 합산되지는 않습니다. 일부 플랜의 API 크레딧은 계정의 적용 조건을 확인하세요.</p>${helpLinks(['claudeCredits'])}<p class="publication-note">도움말 확인일 ${PUBLISHING_HELP_REVIEW_DATE}. 실제 적용은 해당 기관·서비스의 최신 안내에서 확인하세요.</p></details>`;
+}
 
 export function renderPublicationChecks(project, metadata) {
   const report = publicationReadiness(project, metadata);
-  return `<div class="publication-summary" role="status"><strong>${report.passed} / ${report.total} 항목 확인</strong><span>${report.blockers ? `필수 수정 ${report.blockers}개` : '준비 패키지 생성 가능'} · 유통 심사는 별도</span></div>${report.staleReview ? '<p class="publication-warning">원고나 표지가 바뀌었습니다. 아래 직접 확인 항목을 다시 검토해 주세요.</p>' : ''}<ul class="publication-checks">${report.checks.map(c => `<li class="publication-check ${c.state}"><span class="publication-check-state">${statusName[c.state]}</span><div><strong>${esc(c.label)}</strong><p>${esc(c.detail)}</p></div></li>`).join('')}</ul>`;
+  const channel = normalizePublication(metadata ?? project.publication).channel;
+  return `<div class="publication-summary" role="status"><strong>${report.passed} / ${report.total} 항목 확인</strong><span>${report.blockers ? `필수 수정 ${report.blockers}개` : '준비 패키지 생성 가능'} · 유통 심사는 별도</span></div><p class="publication-note">각 항목의 ‘뜻과 진행 방법’을 펼치면 용어·작업 위치·공식 안내를 볼 수 있습니다. ‘외부 확인’은 해당 기관에서 진행할 단계이며, 링크를 여는 것만으로 확인 완료되지는 않습니다.</p>${report.staleReview ? '<p class="publication-warning">원고나 표지가 바뀌었습니다. 아래 직접 확인 항목을 다시 검토해 주세요.</p>' : ''}<ul class="publication-checks">${report.checks.map(c => `<li class="publication-check ${c.state}"><span class="publication-check-state">${statusName[c.state]}</span><div class="publication-check-content"><strong>${esc(c.label)}</strong><p>${esc(c.detail)}</p>${renderCheckHelp(c, channel)}</div></li>`).join('')}</ul>`;
 }
 
 function renderFieldMap(project, metadata) {
@@ -33,7 +53,7 @@ export function renderPublicationPanel(project) {
   <div class="publication-actions"><button class="button primary" type="button" data-publication-action="package">출판 준비 ZIP 만들기</button><button class="button secondary" type="button" data-publication-action="check">다시 점검</button><button class="button secondary" type="button" data-publication-action="guide">절차서 받기</button></div><p class="publication-note">EPUB · JPG 표지와 검사 결과 · 책 넘김 HTML · 인쇄용 HTML · Markdown · 판권 · 도서정보 · 경로별 대응표 · 판본 이력 · 점검표 · EPUBCheck 실행 도우미를 묶습니다. 입력 내용은 책에 자동 저장됩니다.</p><p class="publication-message" aria-live="polite"></p>
   </form><details class="publication-details" open><summary>출판 준비 점검 결과</summary><div data-publication-checks>${renderPublicationChecks(project, m)}</div></details>
   <details class="publication-details"><summary>유통 경로별 입력 대응표</summary><div data-publication-field-map>${renderFieldMap(project,m)}</div></details>
-  <details class="publication-details"><summary>출판 절차와 공식 안내</summary><ol class="publication-steps"><li>원고·이미지 권리와 교정을 확인합니다.</li><li>국내 유통사 또는 출판사와 경로·ISBN·납본 담당을 정합니다.</li><li>도서 정보와 판권을 확정하고 준비 ZIP을 생성합니다.</li><li>EPUBCheck와 실제 리더기로 최종 파일을 검사합니다.</li><li>유통사에 계정·정산·계약 정보를 등록하고 도서 파일과 별도 표지를 제출합니다.</li><li>판매 신청을 직접 승인하고 심사 결과·판매 페이지·납본을 확인합니다.</li></ol><p class="publication-note">교보문고 전자책 직접 계약은 ISBN 발급이 가능한 출판사 대상입니다. 개인 저자는 제휴사를 이용합니다. KDP 지원 언어 목록에는 한국어가 없으므로 지원 언어의 원고를 별도로 준비해야 합니다. HTML의 책 넘김은 EPUB/PDF에서 동일하게 보장되지 않습니다.</p><div class="publication-links">${[['domestic','유페이퍼 판권 안내'],['domesticFiles','유페이퍼 파일 등록 정책'],['kyobo','교보문고 전자책 제휴'],['isbn','ISBN·납본'],['epubcheck','EPUBCheck'],['kdpCover','KDP 표지 규격'],['kdpLanguages','KDP 지원 언어'],['kdpAI','KDP AI 정책']].map(([key,label]) => `<a href="${PUBLICATION_LINKS[key]}" target="_blank" rel="noopener noreferrer">${label} ↗</a>`).join('')}</div><p class="publication-note">정책 확인일 ${PUBLICATION_REVIEW_DATE}. 판매 전 공식 안내의 최신 조건을 확인하세요.</p></details></section>`;
+  <details class="publication-details"><summary>출판 절차와 공식 안내</summary><ol class="publication-steps"><li>원고·이미지 권리와 교정을 확인합니다.</li><li>국내 유통사 또는 출판사와 경로·ISBN·납본 담당을 정합니다.</li><li>도서 정보와 판권을 확정하고 준비 ZIP을 생성합니다.</li><li>EPUBCheck와 실제 리더기로 최종 파일을 검사합니다.</li><li>유통사에 계정·정산·계약 정보를 등록하고 도서 파일과 별도 표지를 제출합니다.</li><li>판매 신청을 직접 승인하고 심사 결과·판매 페이지·납본을 확인합니다.</li></ol><p class="publication-note">교보문고 전자책 직접 계약은 ISBN 발급이 가능한 출판사 대상입니다. 개인 저자는 제휴사를 이용합니다. KDP 지원 언어 목록에는 한국어가 없으므로 지원 언어의 원고를 별도로 준비해야 합니다. HTML의 책 넘김은 EPUB/PDF에서 동일하게 보장되지 않습니다.</p><div class="publication-links">${[['domestic','유페이퍼 판권 안내'],['domesticFiles','유페이퍼 파일 등록 정책'],['kyobo','교보문고 전자책 제휴'],['isbn','ISBN·납본'],['epubcheck','EPUBCheck'],['kdpCover','KDP 표지 규격'],['kdpLanguages','KDP 지원 언어'],['kdpAI','KDP AI 정책']].map(([key,label]) => `<a href="${PUBLICATION_LINKS[key]}" target="_blank" rel="noopener noreferrer">${label} ↗</a>`).join('')}</div><p class="publication-note">정책 확인일 ${PUBLICATION_REVIEW_DATE}. 판매 전 공식 안내의 최신 조건을 확인하세요.</p></details>${renderPublishingResources()}</section>`;
 }
 
 /** Container can be the rendered section itself or a parent. onSave receives only publication metadata. */
@@ -78,7 +98,9 @@ export function mountPublicationPanel(container, { getProject, onSave = () => {}
   };
   const refresh = metadata => {
     if (disposed) return;
+    const openHelp = [...panel.querySelectorAll('[data-publication-help][open]')].map(item => item.dataset.publicationHelp);
     panel.querySelector('[data-publication-checks]').innerHTML = renderPublicationChecks(getProject(), metadata);
+    for (const item of panel.querySelectorAll('[data-publication-help]')) if (openHelp.includes(item.dataset.publicationHelp)) item.open = true;
     panel.querySelector('[data-publication-field-map]').innerHTML = renderFieldMap(getProject(), metadata);
     panel.querySelector('[data-publication-history]').innerHTML = renderHistory(getProject(), metadata);
   };

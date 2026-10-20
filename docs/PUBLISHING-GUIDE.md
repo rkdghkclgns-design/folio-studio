@@ -2,6 +2,37 @@
 
 공식 자료 확인일: 2026-10-20. 기본 경로는 한국어 전자책의 국내 유통이다. 판매·ISBN·정산·계약 조건은 제출 시 선택 기관의 최신 안내로 확인한다.
 
+## 체크리스트 도움말 사용하기
+
+2026-10-21 업데이트: **출판 준비 점검 결과 → 각 항목의 ‘뜻과 진행 방법’**을 펼치면 용어 설명, Folio 안팎의 작업 위치, 다음 행동과 공식 안내 링크를 볼 수 있다. 외부 링크는 새 탭에서 열리며 링크 방문만으로 검수 항목이 완료 처리되지 않는다. 정보를 입력해 자동 저장할 때도 펼친 도움말을 유지한다.
+
+ISBN·판매 심사 도움말은 선택한 국내 유통 / KDP / 직접 배포 경로에 맞춰 바뀐다. 직접 출판사를 운영하는 절차를 모든 개인 저자에게 일괄 적용하지 않는다. 기존에 저장한 권리·교정·기기 검수 확인과 판본 이력은 도움말 추가로 변경하지 않는다.
+
+같은 설명·링크는 **절차서 받기**와 ZIP의 `PUBLISHING-GUIDE.md`에도 포함된다. 화면 하단에는 **쉬운 출판 용어**, **출판사 신고·사업자등록은 어디서 하나요?**, **삽화를 무료·기존 구독 범위에서 준비하기**를 추가했다.
+
+| 용어 | 쉬운 뜻 | 실제 진행 위치 |
+|---|---|---|
+| 판권 | 저자·발행처·출판일·권리 고지를 모은 부분 | Folio 출판 정보와 유통사 판권 기준 |
+| 발행자번호 | ISBN을 신청할 발행 주체의 번호 | [국립중앙도서관 발행자번호 신청 안내](https://www.nl.go.kr/seoji/contents/S30101000000.do) |
+| ISBN | 개별 도서의 형태·판본을 식별하는 번호. 저작권 등록번호는 아님 | [개별 도서 ISBN 신청 안내](https://www.nl.go.kr/seoji/contents/S30201000000.do), 또는 대행 유통사 |
+| 납본 | 발행 자료를 국립중앙도서관에 제출·보존하는 절차 | [전자책 납본 안내](https://www.nl.go.kr/seoji/contents/S50102010000.do) |
+| 메타데이터 | 제목·저자·소개·가격 등 서점 입력용 정보 | Folio 출판 정보 → 유통사 도서 등록 화면 |
+| EPUBCheck | EPUB의 파일 구조를 검사하는 무료 도구 | [공식 설치 안내](https://www.w3.org/publishing/epubcheck/docs/installation/) → 내 컴퓨터에서 검증 스크립트 실행 |
+| 리더기 검수 | 실제 전자책 프로그램·휴대폰에서 읽어 보는 점검 | [무료 Thorium 리더](https://www.edrlab.org/software/thorium-reader/) 등에서 `book.epub` 열기 |
+
+### 출판사 운영·사업자 확인
+
+대행 유통이면 계약상 발행처·ISBN·납본 담당을 먼저 정한다. 직접 출판사를 운영한다면 [정부24 출판사 신고 안내](https://m.gov.kr/mw/AA020InfoCappView.do?CappBizCD=13700000045&HighCtgCD=A07002&tp_seq=02), [국세청 사업자등록 정정 안내](https://d.nts.go.kr/nts/cm/cntnts/cntntsView.do?cntntsId=7779&mi=2446), [홈택스](https://www.hometax.go.kr/)에서 본인에게 필요한 절차를 확인한다.
+
+출판업 추가만으로 간이과세자가 자동으로 일반과세자로 바뀌는 것은 아니다. 과세상품과 면세도서를 함께 판매하는 경우, 면세도서만 판매하는 경우를 구분한다. 모든 PDF가 자동 면세 전자출판물은 아니므로 [문체부 전자출판물 기준](https://www.mcst.go.kr/site/s_data/ordinance/instruction/instructionView.jsp?pSeq=3539)을 확인한다. 직접 온라인 판매할 때는 [통신판매업 신고 안내](https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=11300000006&tp_seq=01)를 함께 확인한다. 구체적인 세무 판단은 실제 업종·매출·판매 방식에 따라 확인한다.
+
+### 무료·기존 구독으로 삽화 준비하기
+
+- 인터넷 이미지의 출처를 적는 것만으로 이용 허락을 대신할 수 없다. [공유마당](https://gongu.copyright.or.kr/gongu/main/main.do)에서 검색하더라도 각 파일의 라이선스를 확인한다. CC0·[CC BY](https://creativecommons.org/licenses/by/4.0/)·[공공누리 제1유형](https://www.mcst.go.kr/site/s_open/kogl/koglType.jsp) 등을 우선 검토하고, 저작자·원본 URL·허락 조건·변경 내용을 보관한다. NC·공공누리 제2·4유형은 상업 이용 제한, ND·제3유형은 변경 제한이 있다.
+- 사용 중인 [ChatGPT](https://help.openai.com/en/articles/11084440-images-in-chatgpt) 또는 [Codex](https://learn.chatgpt.com/docs/image-generation)의 포함 이미지 생성 사용량 안에서 만들면 추가 생성비는 **$0 / 0원**이다. 구독료·한도·추가 사용 요금은 별도다. 결과 파일을 내려받아 Folio에 등록한다.
+- [Claude로 SVG·도표를 작성](https://support.claude.com/en/articles/9002504-can-claude-produce-images)해 상태 전이도·흐름도·비교표를 준비할 수 있다. 포함 사용량 안에서는 추가 비용 **$0 / 0원**이며 구독료와 한도는 별도다. 지원 이미지 형식으로 준비하거나 Folio 도표 기능으로 옮긴 뒤 검수한다.
+- Folio에 외부 API 키를 넣어 생성하는 경우에는 해당 API 요금 체계를 따른다. 기존 구독 사용량에서 자동 차감되는 것으로 가정하지 않는다. [일부 Claude 플랜의 API 크레딧](https://support.claude.com/en/articles/17154008-monthly-api-credits-for-max-and-team-plans)은 계정의 적용 조건을 확인한다.
+
 ## 경로 결정
 
 | 상황 | 경로 | 먼저 확인할 사항 |
