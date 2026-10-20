@@ -1,0 +1,32 @@
+.book-editor{display:grid;gap:14px;min-width:0;color:#293e33}
+.book-editor label{display:flex;align-items:center;gap:8px;font-size:12px;line-height:1.5}
+.book-editor input,.book-editor select,.book-editor textarea{font:inherit;color:#293e33;background:#fffefa;border:1px solid #b8c7b2;border-radius:6px;padding:9px 10px;box-sizing:border-box;max-width:100%}
+.book-editor .book-editor-title-label{display:grid;gap:7px;font-weight:600}
+.book-editor-title-label input{width:100%;font-size:23px;line-height:1.5}
+.book-editor-tools{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.book-editor button{border:1px solid #b8c7b2;border-radius:6px;background:#fffefa;color:#294737;padding:9px 11px;min-height:36px;font:inherit;font-size:12px;line-height:1.4;cursor:pointer}
+.book-editor button:hover{background:#e9efe5}
+.book-editor button:disabled,.book-editor select:disabled,.book-editor input:disabled{opacity:.55;cursor:default}
+.book-editor button:focus-visible,.book-editor select:focus-visible,.book-editor textarea:focus-visible,.book-editor input:focus-visible{outline:3px solid #637e69;outline-offset:2px}
+.book-editor .book-editor-help,.book-editor .book-editor-status{font-size:12px;line-height:1.65;margin:0;color:#52614b;word-break:keep-all;overflow-wrap:anywhere}
+.book-editor .book-editor-content-label{display:block}
+.book-editor [data-book-editor-content]{display:block;width:100%;min-height:360px;resize:vertical;font-family:'Noto Serif KR','Malgun Gothic',serif;font-size:16px;line-height:1.9;padding:22px;word-break:keep-all;overflow-wrap:anywhere}
+.book-editor-media{display:flex;align-items:center;flex-wrap:wrap;gap:12px;border:1px solid #c5d0be;border-radius:8px;padding:14px;min-width:0;background:#f7f9f3}
+.book-editor-media legend{font-size:12px;padding:0 7px;font-weight:600}
+.book-editor-media-choice{flex:1 1 230px;min-width:0}
+.book-editor-media-choice select{width:100%;min-width:0;text-overflow:ellipsis}
+.book-editor-width{flex-wrap:wrap;max-width:250px}
+.book-editor-width input{width:130px;padding:0;accent-color:#486454}
+.book-editor-width output{min-width:36px;font-variant-numeric:tabular-nums}
+.book-editor-copy-fallback{border:1px solid #bfa44c;background:#fff9e6;padding:14px;border-radius:8px}
+.book-editor-copy-fallback label{display:grid;gap:8px}
+.book-editor-copy-fallback textarea{width:100%;height:90px;resize:vertical;word-break:break-all;font:12px/1.5 monospace}
+.book-editor [hidden]{display:none!important}
+.book-editor-sr-only{position:absolute!important;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.book-workspace-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:0 0 18px;min-width:0}
+.book-workspace-toolbar>label{display:flex;align-items:center;gap:8px;flex:1 1 240px;min-width:0;font-size:12px}
+.book-workspace-toolbar select{min-width:0;max-width:100%;flex:1;padding:8px;border:1px solid #b8c7b2;border-radius:6px;background:#fffefa;color:#293e33}
+.book-workspace-toolbar [role="group"]{display:flex;align-items:center;gap:6px}
+.book-workspace-toolbar [role="status"]{font-size:12px;line-height:1.5;color:#52614b;word-break:keep-all;overflow-wrap:anywhere}
+@media(max-width:600px){.book-workspace-toolbar{gap:10px}.book-workspace-toolbar>label{flex-basis:100%;width:100%}.book-workspace-toolbar select{width:100%}}
+@media(max-width:600px){.book-editor [data-book-editor-content]{padding:14px;min-height:300px;font-size:15px}.book-editor-tools{gap:6px}.book-editor-tools label{flex-wrap:wrap}.book-editor-media{padding:10px;gap:10px}.book-editor-title-label input{font-size:20px}}

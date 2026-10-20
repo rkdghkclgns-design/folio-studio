@@ -3,12 +3,20 @@ import { getCoverPresentation } from './cover.js';
 import { DIAGRAM_CSS, renderDiagram } from './diagrams.js';
 import { BOOK_PREVIEW_CSS, standaloneReaderScript } from './book-preview.js';
 import { withoutPlaceholderHeadings } from './manuscript.js';
+import { normalizeMediaPresentation, mediaPresentationAttributes, MEDIA_STYLE_CSS } from './media-style.js';
+import { getReadingChapters } from './book-matter.js';
 
 const encoder = new TextEncoder();
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_IMAGE_PIXELS = 50000000;
 const MAX_BOOK_IMAGE_BYTES = 128 * 1024 * 1024;
 const MAX_CHAPTERS = 1000;
+const UNNUMBERED_KINDS = new Set(['preface', 'afterword', 'folio-publication-colophon']);
+function chapterNumbers(chapters) {
+  let number = 0;
+  return chapters.map(chapter => UNNUMBERED_KINDS.has(chapter.kind) ? null : ++number);
+}
+const numberMarkup = number => number === null ? '' : `<p class="chapter-number">${String(number).padStart(2, '0')}</p>`;
 const FIGURE_REFERENCE = /^ {0,3}!\[([^\]\n]*)\]\(folio-asset:([^\s)]+)\)[\t ]*$/;
 const FONT_SERIF = "'Noto Serif KR', 'Nanum Myeongjo', 'Batang', Georgia, serif";
 const FONT_SANS = "'Pretendard', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif";
@@ -33,7 +41,8 @@ function escape(value = '') {
 function normalizeProject(project) {
   if (!project || typeof project !== 'object') throw new Error('내보낼 책을 먼저 선택해 주세요.');
   if (!Array.isArray(project.chapters)) throw new Error('책의 장 목록이 올바르지 않습니다.');
-  if (project.chapters.length > MAX_CHAPTERS) throw new Error('한 권에는 최대 1,000개의 장을 내보낼 수 있습니다.');
+  const reading = getReadingChapters(project);
+  if (reading.filter(chapter => !UNNUMBERED_KINDS.has(chapter.kind)).length > MAX_CHAPTERS || reading.length > MAX_CHAPTERS + 3) throw new Error('한 권에는 최대 1,000개의 본문 장과 시작말·맺음말·판권을 내보낼 수 있습니다.');
   const updated = new Date(project.updatedAt || Date.now());
   return {
     ...project,
@@ -44,7 +53,7 @@ function normalizeProject(project) {
     language: /^[a-z]{2,3}(?:-[a-zA-Z0-9]{2,8})*$/.test(project.language || '') ? project.language : 'ko',
     theme: Object.hasOwn(PALETTES, project.theme) ? project.theme : 'sage',
     updatedAt: Number.isNaN(updated.getTime()) ? new Date().toISOString() : updated.toISOString(),
-    chapters: project.chapters.map((chapter, index) => ({
+    chapters: reading.map((chapter, index) => ({
       ...chapter,
       title: clean(chapter?.title).trim() || `${index + 1}장`,
       content: withoutPlaceholderHeadings(clean(chapter?.content)),
@@ -61,11 +70,12 @@ function safeLink(value) {
 
 function inlineMarkdown(value, depth = 0) {
   if (depth > 3) return escape(value);
-  const expression = /`([^`\n]+)`|\*\*([^*\n]+)\*\*|\*([^*\n]+)\*|\[([^\[\]\n]+)\]\(([^\s)\[]+)\)|\\([!-/:-@\[-`{-~])/g;
+  const expression = /`([^`\n]+)`|\*\*([^*\n]+)\*\*|\*([^*\n]+)\*|\[([^\[\]\n]+)\]\(([^\s)\[]+)\)|\\([!-/:-@\[-`{-~])|==([^\n]+?)==\{(sage|blue|amber|rose)\}/g;
   let result = '', cursor = 0;
   for (const match of value.matchAll(expression)) {
     result += escape(value.slice(cursor, match.index));
-    if (match[1] !== undefined) result += `<code>${escape(match[1])}</code>`;
+    if (match[7] !== undefined) result += `<mark class="folio-text-accent-${match[8]}">${inlineMarkdown(match[7], depth + 1)}</mark>`;
+    else if (match[1] !== undefined) result += `<code>${escape(match[1])}</code>`;
     else if (match[2] !== undefined) result += `<strong>${inlineMarkdown(match[2], depth + 1)}</strong>`;
     else if (match[3] !== undefined) result += `<em>${inlineMarkdown(match[3], depth + 1)}</em>`;
     else if (match[6] !== undefined) result += escape(match[6]);
@@ -528,7 +538,7 @@ export function validateChapterFigures(value) {
     for (const [field, limit] of [['alt', 2000], ['caption', 4000]]) {
       if (image[field] !== undefined && (typeof image[field] !== 'string' || image[field].length > limit)) throw new Error('화면 예시의 설명이 올바르지 않거나 너무 깁니다.');
     }
-    return { id: image.id, src: validateImageSource(image.src), alt: clean(image.alt).trim() || '화면 예시', caption: clean(image.caption).trim() };
+    return { id: image.id, src: validateImageSource(image.src), alt: clean(image.alt).trim() || '화면 예시', caption: clean(image.caption).trim(), ...(image.presentation === undefined ? {} : { presentation: normalizeMediaPresentation(image.presentation) }) };
   });
 }
 
@@ -662,7 +672,7 @@ async function prepareImages(project, epub) {
       assets.push(asset); cache.set(image.src, asset);
     }
     if (isCover) asset.cover = true;
-    return { ...asset, alt: clean(image.alt || (isCover ? project.title : '삽화')), caption: clean(image.caption) };
+    return { ...asset, alt: clean(image.alt || (isCover ? project.title : '삽화')), caption: clean(image.caption), ...(image.presentation === undefined ? {} : { presentation: normalizeMediaPresentation(image.presentation) }) };
   };
   const presentation = getCoverPresentation(project);
   const composed = epub && (project.coverDesign !== undefined || Boolean(project.coverBackground?.src));
@@ -694,6 +704,7 @@ export const MARKDOWN_CSS = `
 .folio-table-scroll{max-width:100%;overflow-x:auto;margin:1.5em 0}.folio-markdown-table{width:100%;border-collapse:collapse;font-size:.9em;line-height:1.6}.folio-markdown-table th,.folio-markdown-table td{border:1px solid #d9dfd5;padding:.6em .8em;vertical-align:top;overflow-wrap:anywhere}.folio-markdown-table th{background:#edf1e9;font-weight:600}.folio-markdown-table .folio-align-left{text-align:left}.folio-markdown-table .folio-align-center{text-align:center}.folio-markdown-table .folio-align-right{text-align:right}.folio-diagram-error{margin:1.5em 0;padding:1em;border:1px solid #b26c42;background:#fff8ef}.folio-diagram-error p{margin:0;font-family:${FONT_SANS};font-size:.85em;color:#784526}
 .folio-missing-figure{margin:1.5em 0;padding:1em;border:1px dashed #9a8071;background:#fff8ef}.folio-missing-figure p{margin:0;font-family:${FONT_SANS};font-size:.85em;color:#784526}
 ${DIAGRAM_CSS}
+${MEDIA_STYLE_CSS}
 `;
 
 const BOOK_CSS = `
@@ -731,7 +742,14 @@ function xhtml(project, title, body, extraClass = '') {
 }
 
 function figure(image, src) {
-  return image ? `<figure><img src="${escape(src)}" alt="${escape(image.alt)}"/>${image.caption ? `<figcaption>${escape(image.caption)}</figcaption>` : ''}</figure>` : '';
+  if (!image) return '';
+  const caption = clean(image.caption).trim();
+  return `<figure${mediaPresentationAttributes(image.presentation)}><img src="${escape(src)}" alt="${escape(image.alt)}"/>${caption && caption !== 'AI 생성 삽화' ? `<figcaption>${escape(caption)}</figcaption>` : ''}</figure>`;
+}
+
+/** Validated media markup for editor previews, including legacy generated SVG. */
+export function renderImageFigure(image) {
+  return image?.src ? figure(image, validateImageSource(image.src)) : '';
 }
 
 function coverMarkup(project, cover, src, epub = false) {
@@ -811,9 +829,10 @@ export async function buildEpub(input) {
   const rights = clean(publication.rightsStatement || publication.rightsHolder).trim();
   const publishingMetadata = `${publication.publisher ? `<dc:publisher>${escape(publication.publisher)}</dc:publisher>` : ''}${rights ? `<dc:rights>${escape(rights)}</dc:rights>` : ''}${validDate ? `<dc:date>${publicationDate}</dc:date>` : ''}${validISBN ? `<dc:identifier>urn:isbn:${isbn}</dc:identifier>` : ''}`;
   const chapterFile = index => `chapter-${String(index + 1).padStart(3, '0')}.xhtml`;
+  const numbers = chapterNumbers(project.chapters), firstBody = project.chapters.findIndex(chapter => !UNNUMBERED_KINDS.has(chapter.kind));
   const chapterMarkup = project.chapters.map((chapter, index) => renderMarkdownWithFigures(chapter.content, figures[index]));
   const nav = `<nav epub:type="toc" id="toc" class="toc" role="doc-toc"><h1 id="toc-heading">목차</h1><ol>${project.chapters.length ? project.chapters.map((chapter, index) => `<li><a href="${chapterFile(index)}">${escape(chapter.title)}</a></li>`).join('') : '<li><a href="title.xhtml">책 소개</a></li>'}</ol></nav>
-<nav epub:type="landmarks" hidden="hidden"><h2>책의 구성</h2><ol><li><a epub:type="cover" href="cover.xhtml">표지</a></li><li><a epub:type="toc" href="nav.xhtml#toc">목차</a></li>${project.chapters.length ? `<li><a epub:type="bodymatter" href="${chapterFile(0)}">본문</a></li>` : ''}</ol></nav>`;
+<nav epub:type="landmarks" hidden="hidden"><h2>책의 구성</h2><ol><li><a epub:type="cover" href="cover.xhtml">표지</a></li><li><a epub:type="toc" href="nav.xhtml#toc">목차</a></li>${project.chapters.length ? `<li><a epub:type="bodymatter" href="${chapterFile(Math.max(0, firstBody))}">본문</a></li>` : ''}</ol></nav>`;
   const manifest = [
     '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>',
     '<item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>',
@@ -838,7 +857,7 @@ export async function buildEpub(input) {
     ['OEBPS/cover.xhtml', xhtml(project, `${project.title} — 표지`, coverMarkup(project, cover, cover.path, true), 'cover-page')],
     ['OEBPS/title.xhtml', xhtml(project, project.title, `<section epub:type="titlepage" class="chapter"><h1>${escape(project.title)}</h1>${project.subtitle ? `<p class="book-subtitle">${escape(project.subtitle)}</p>` : ''}<p class="book-author">${escape(project.author)}</p>${project.description ? `<p>${escape(project.description).replace(/\n/g, '<br />')}</p>` : ''}</section>`)],
     ['OEBPS/nav.xhtml', xhtml(project, `${project.title} — 목차`, nav)],
-    ...project.chapters.map((chapter, index) => [`OEBPS/${chapterFile(index)}`, xhtml(project, chapter.title, `<section epub:type="chapter" role="doc-chapter" aria-labelledby="chapter-heading" class="chapter"><p class="chapter-number">${String(index + 1).padStart(2, '0')}</p><h1 id="chapter-heading">${escape(chapter.title)}</h1>${figure(images[index], images[index]?.path)}${chapterMarkup[index]}</section>`)]),
+    ...project.chapters.map((chapter, index) => [`OEBPS/${chapterFile(index)}`, xhtml(project, chapter.title, `<section epub:type="chapter" role="doc-chapter" aria-labelledby="chapter-heading" class="chapter">${numberMarkup(numbers[index])}<h1 id="chapter-heading">${escape(chapter.title)}</h1>${figure(images[index], images[index]?.path)}${chapterMarkup[index]}</section>`)]),
     ...assets.map(asset => [`OEBPS/${asset.path}`, asset.bytes]),
   ];
   return zip(entries, project.updatedAt);
@@ -858,11 +877,12 @@ export async function prepareBookPreview(input) {
   const project = normalizeProject(input);
   const { cover, chapters: images, figures } = await prepareImages(project, false);
   const src = image => `data:${image.mime};base64,${bytesToBase64(image.bytes)}`;
+  const numbers = chapterNumbers(project.chapters);
   const sections = [
     { id: 'book-cover', title: '표지', kind: 'cover', html: coverMarkup(project, cover, src(cover)) },
     { id: 'book-title', title: '책 소개', kind: 'title', html: `<h1>${escape(project.title)}</h1>${project.subtitle ? `<p class="book-subtitle">${escape(project.subtitle)}</p>` : ''}<p class="book-author">${escape(project.author)}</p>${project.description ? `<p>${escape(project.description).replace(/\n/g, '<br>')}</p>` : ''}` },
-    { id: 'book-toc', title: '목차', kind: 'toc', html: `<h1>목차</h1><ol>${project.chapters.map((chapter, index) => `<li><a href="#chapter-${index + 1}">${String(index + 1).padStart(2, '0')}　${escape(chapter.title)}</a></li>`).join('')}</ol>` },
-    ...project.chapters.map((chapter, index) => ({ id: `chapter-${index + 1}`, title: chapter.title, kind: 'chapter', html: `<p class="chapter-number">${String(index + 1).padStart(2, '0')}</p><h1>${escape(chapter.title)}</h1>${figure(images[index], images[index] ? src(images[index]) : '')}${renderMarkdownWithFigures(chapter.content, figures[index])}` })),
+    { id: 'book-toc', title: '목차', kind: 'toc', html: `<h1>목차</h1><ol>${project.chapters.map((chapter, index) => `<li><a href="#chapter-${index + 1}">${numbers[index] === null ? '' : String(numbers[index]).padStart(2, '0') + '　'}${escape(chapter.title)}</a></li>`).join('')}</ol>` },
+    ...project.chapters.map((chapter, index) => ({ id: `chapter-${index + 1}`, chapterId: chapter.id, matterKind: chapter.kind || 'chapter', title: chapter.title, kind: 'chapter', html: `${numberMarkup(numbers[index])}<h1>${escape(chapter.title)}</h1>${figure(images[index], images[index] ? src(images[index]) : '')}${renderMarkdownWithFigures(chapter.content, figures[index])}` })),
   ];
   return { title: project.title, language: project.language, sections };
 }
@@ -903,8 +923,8 @@ export function exportMarkdown(input) {
 }
 
 export function projectToText(input) {
-  const project = normalizeProject(input);
-  return [project.title, project.subtitle, `지은이: ${project.author}`, project.description, ...project.chapters.map((chapter, index) => `${index + 1}. ${chapter.title}\n\n${chapter.content.trim()}`)].filter(Boolean).join('\n\n');
+  const project = normalizeProject(input), numbers = chapterNumbers(project.chapters);
+  return [project.title, project.subtitle, `지은이: ${project.author}`, project.description, ...project.chapters.map((chapter, index) => `${numbers[index] === null ? '' : numbers[index] + '. '}${chapter.title}\n\n${chapter.content.trim()}`)].filter(Boolean).join('\n\n');
 }
 
 export function downloadBlob(data, filename, mime = 'application/octet-stream') {

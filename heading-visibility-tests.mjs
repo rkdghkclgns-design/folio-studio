@@ -98,6 +98,7 @@ const workspaceFixture = book => ({ projects: [book], activeId: book.id, histori
 test('preview toolbar switches to edit without inserting content; repeated unselected formatting stays inert', async t => {
   const content = '변경하면 안 되는 원고입니다.\n\n다음 문단도 그대로 보존합니다.';
   const app = await boot(t, { workspace: workspaceFixture(bookFixture(content)) });
+  const initialHistories = structuredClone(app.saved().histories);
   assert.equal(app.$('[data-action="editor-tab"][data-tab="read"]').getAttribute('aria-pressed'), 'true');
   assert.equal(document.querySelector('#manuscript-text'), null);
   await app.click('[data-action="format"][data-format="heading"]');
@@ -110,7 +111,7 @@ test('preview toolbar switches to edit without inserting content; repeated unsel
     assert.equal(editor.value, content, `${format} must not invent placeholder text`);
   }
   await app.save(); assert.equal(app.current().chapters[0].content, content);
-  assert.equal(app.saved().histories[app.current().id]?.length || 0, 0, 'empty selections must not create history entries');
+  assert.deepEqual(app.saved().histories, initialHistories, 'empty selections must not create history entries beyond the initial migration checkpoint');
   assert.equal(app.requests.length, 0);
 });
 

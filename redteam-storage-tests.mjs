@@ -224,7 +224,10 @@ test('app: pending manuscript edits trigger an unload guard until a successful s
 });
 
 test('app: a quota failure preserves the previous backup and keeps the unload guard active', async t => {
-  const original = JSON.stringify(fixture('마지막 정상 저장 원고')), app = await bootApp(original); t.after(app.cleanup);
+  const source = JSON.stringify(fixture('마지막 정상 저장 원고')), app = await bootApp(source); t.after(app.cleanup);
+  await app.hook.persist(true);
+  const original = app.local.getItem(key);
+  assert.equal(JSON.parse(original).projects[0].chapters[0].content, '마지막 정상 저장 원고');
   const editor = app.win.document.querySelector('#manuscript-text'); editor.value = '아직 저장되지 않은 원고';
   editor.dispatchEvent(new app.win.Event('input', { bubbles: true }));
   app.local.setItem = () => { throw new DOMException('Quota exceeded', 'QuotaExceededError'); };
@@ -275,7 +278,7 @@ test('app: whole-workspace imports preserve every book, writing preferences, and
   const other = structuredClone(original.projects[0]); other.id = 'book-2'; other.title = '둘째 책'; original.projects.push(other);
   app.win.document.querySelector('[data-action="library"]').click();
   app.win.document.querySelector('.modal [data-action="import"]').click();
-  const input = app.win.document.querySelector('input[type="file"]');
+  const input = app.win.document.querySelector('input[type="file"]:not([data-book-editor-file])');
   const backup = JSON.stringify({ format: 'folio-workspace', version: 1, workspace: original });
   Object.defineProperty(input, 'files', { value: [new app.win.File([backup], 'folio-workspace.json', { type: 'application/json' })] });
   input.dispatchEvent(new app.win.Event('change', { bubbles: true })); await new Promise(resolve => setTimeout(resolve, 5));
@@ -304,7 +307,7 @@ test('app: slow image decoding cannot attach an image to a different book', asyn
   const saved = fixture(); const second = fixture().projects[0]; second.id = 'book-2'; second.title = '다른 책'; second.chapters[0].id = 'second-chapter'; saved.projects.push(second);
   const app = await bootApp(saved, { FileReader: DeferredReader, Image: DecodedImage }); t.after(app.cleanup);
   app.hook.uploadImage('chapter');
-  const fileInput = app.win.document.querySelector('input[type="file"]');
+  const fileInput = app.win.document.querySelector('input[type="file"]:not([data-book-editor-file])');
   Object.defineProperty(fileInput, 'files', { value: [new app.win.File(['synthetic file input'], 'original.png', { type: 'image/png' })] });
   fileInput.dispatchEvent(new app.win.Event('change', { bubbles: true }));
   app.win.document.querySelector('[data-action="library"]').click();

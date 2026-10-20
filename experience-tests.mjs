@@ -105,7 +105,7 @@ test('the six-step guide navigates backward and forward without changing books o
   assert.deepEqual(manuscripts(app.saved()), before);
   assert.equal(app.requests, 0);
   assert.equal(app.downloads.length, 0);
-  assert.equal(document.querySelector('input[type="file"]'), null, 'Reading instructions must not open the file picker');
+  assert.equal(document.querySelector('body > input[type="file"]'), null, 'Reading instructions must not open a transient file picker');
   assert.equal(document.querySelector('iframe'), null, 'Reading instructions must not launch printing');
 });
 
@@ -200,6 +200,7 @@ test('search finds titles and body text across books, escapes snippets, and open
     book('book-b', '창가의 책', [{ id: 'b1', title: '깊은 바다', content: '바다를 보고 돌아왔습니다.' }, { id: 'b2', title: '둘째 이야기', content: '여기에 검색단어 <img src=x onerror=alert(1)> 가 있습니다.' }]),
   ] };
   const app = await boot(t, { workspace });
+  const before = manuscripts(app.saved());
   const event = await app.key('k', { ctrlKey: true });
   assert.equal(event.defaultPrevented, true);
   await app.input('#workspace-search', '깊은 바다');
@@ -216,7 +217,7 @@ test('search finds titles and body text across books, escapes snippets, and open
   assert.equal(app.$('.project-head h1').textContent, '창가의 책');
   assert.equal(app.$('#chapter-title').value, '둘째 이야기');
   assert.equal(app.$('#manuscript-text').value, workspace.projects[1].chapters[1].content);
-  assert.deepEqual(manuscripts(await app.save()), manuscripts(workspace));
+  assert.deepEqual(manuscripts(await app.save()), before);
 });
 
 test('search has an empty state and Escape returns to the original editor focus and selection', async t => {

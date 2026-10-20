@@ -155,7 +155,8 @@ test('closing paginated preview restores focus to its original opener', async t 
   next.focus(); next.click();
   await app.settle(15);
   document.dispatchEvent(new app.win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-  assert.equal(document.querySelector('.modal'), null);
+  await app.settle();
+  assert.ok(!document.querySelector('.modal'), 'Modal must close after its pending save settles');
   assert.equal(document.activeElement === opener, true, 'Repeated modal rendering must retain the original external focus target');
 });
 
@@ -243,6 +244,6 @@ test('successful rewrite restores keyboard focus after updating the editor', asy
   opener.focus(); opener.click();
   for (let i = 0; i < 50 && app.$('#manuscript-text').value !== rewritten.content; i++) await app.settle();
   assert.equal(app.$('#manuscript-text').value, rewritten.content, 'Mocked successful rewrite must finish');
-  assert.equal(document.querySelector('.modal'), null);
+  assert.ok(!document.querySelector('.modal'), 'Modal must close after its pending save settles');
   assert.equal(document.activeElement === app.$('.toolbar [data-action="rewrite"]'), true, 'Rerendering the changed manuscript must retain the restored keyboard focus');
 });

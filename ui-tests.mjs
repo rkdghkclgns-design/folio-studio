@@ -61,7 +61,7 @@ async function currentProject() {
 }
 async function submit(selector) { $(selector).dispatchEvent(new win.Event('submit', { bubbles: true, cancelable: true })); await settle(); }
 async function attachFile(name, contents, type = 'text/plain') {
-  const fileInput = $('input[type="file"]');
+  const fileInput = $('body > input[type="file"]');
   Object.defineProperty(fileInput, 'files', { configurable: true, value: [new win.File([contents], name, { type })] });
   fileInput.dispatchEvent(new win.Event('change', { bubbles: true }));
   await settle(); await settle();
@@ -116,12 +116,12 @@ test('Folio UI DOM integration', async t => {
     await click('[data-action="editor-tab"][data-tab="write"]');
     await click('[data-action="preview"]');
     await until(() => Boolean(document.querySelector('.modal [data-book-next]')), 'Paginated preview should load');
-    assert.equal($$('.modal [data-book-section] option').length, 9);
+    assert.equal($$('.modal .folio-book-reader [data-book-section] option').length, 11, 'cover, title, contents, preface, six body chapters, and afterword are navigable');
     assert.equal($('.modal [data-book-prev]').disabled, true);
     const initialPosition = $('.modal [data-book-position]').textContent;
     await click('.modal [data-book-next]');
     assert.notEqual($('.modal [data-book-position]').textContent, initialPosition);
-    await input('.modal [data-book-section]', '3', true);
+    await input('.modal .folio-book-reader [data-book-section]', '4', true);
     assert.match($('.modal [data-book-stage]').textContent, /나만의 속도를 찾는 일/);
     document.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await settle();

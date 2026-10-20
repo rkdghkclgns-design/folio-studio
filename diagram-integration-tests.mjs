@@ -204,8 +204,11 @@ test('one explicit diagram request inserts a grounded chart after its paragraph 
   assert.ok(app.$('.read-content').textContent.includes('12'));
   assert.equal(app.$('.read-content').textContent.includes('folio-diagram'), false);
   await app.click('.project-head-actions [data-action="preview"]');
-  await app.until(() => document.querySelector('[data-book-section]'));
-  await app.input('[data-book-section]', '3', true);
+  await app.until(() => document.querySelector('.folio-book-reader [data-book-section]'));
+  const firstBody = app.$('.folio-book-reader [data-book-section]');
+  const firstBodyOption = [...firstBody.options].find(option => option.textContent === app.current().chapters[0].title);
+  assert.ok(firstBodyOption, 'the diagram chapter must remain in the book contents');
+  await app.input('.folio-book-reader [data-book-section]', firstBodyOption.value, true);
   assert.ok(Boolean(app.$('.folio-book-stage svg')));
 });
 

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test *-tests.mjs",
+    "test": "node --max-old-space-size=512 --test --test-concurrency=1 *-tests.mjs",
     "start": "python -m http.server 4173 --directory dist",
     "validate:epub": "node scripts/validate-epub.mjs"
   },

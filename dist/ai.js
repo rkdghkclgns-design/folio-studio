@@ -619,12 +619,17 @@ function validateContentDiagrams(content, { evidence = [], originalContent = '',
   try {
     const original = parseDiagramBlocks(originalContent).filter(block => block.diagram);
     const blocks = parseDiagramBlocks(content, { strict: true, maxDiagrams });
-    const remaining = original.map(block => diagramKey(block.diagram));
+    const remaining = original.map(block => ({key:diagramKey(block.diagram),block})), replacements=[];
     let added = 0;
     for (const block of blocks) {
       const key = diagramKey(block.diagram);
-      const previous = remaining.indexOf(key);
+      const previous = remaining.findIndex(item=>item.key===key);
       if (previous >= 0) {
+        const saved=remaining[previous].block;
+        if(JSON.stringify(saved.diagram.presentation)!==JSON.stringify(block.diagram.presentation)) {
+          const ending=block.raw.match(/(?:\r\n|\n|\r)$/)?.[0]||'';
+          replacements.push({start:block.start,end:block.end,raw:saved.raw.replace(/(?:\r\n|\n|\r)$/,'')+ending});
+        }
         remaining.splice(previous, 1);
         if (recheckExisting) validateEvidenceDiagram(block.diagram, evidence);
       } else {
@@ -634,6 +639,7 @@ function validateContentDiagrams(content, { evidence = [], originalContent = '',
     }
     if (added > 1 || ((disabled || atChapterLimit) && added)) throw new Error('현재 설정에서 새 도표를 추가할 수 없습니다.');
     if (preserve && remaining.length) throw new Error('기존 도표가 변경되거나 누락되었습니다.');
+    for(const replacement of replacements.reverse())content=content.slice(0,replacement.start)+replacement.raw+content.slice(replacement.end);
   } catch (error) {
     throw new AIError(`AI 도표를 적용하지 않았습니다. ${error.message} 원고는 그대로입니다.`, 'INVALID_RESPONSE');
   }
@@ -1492,6 +1498,6 @@ export async function generateImage(prompt, { signal } = {}) {
   return {
     src,
     alt: description.slice(0, 500),
-    caption: 'AI 생성 삽화',
+    caption: '',
   };
 }

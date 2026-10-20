@@ -215,7 +215,7 @@ test('image generation returns a validated PNG data URL', async () => {
   };
   const result = await ai.generateImage('책상 위로 비치는 아침 햇살');
   assert.equal(result.src, `data:image/png;base64,${png}`);
-  assert.equal(result.caption, 'AI 생성 삽화');
+  assert.equal(result.caption, '');
   assert.equal(result.alt, '책상 위로 비치는 아침 햇살');
 });
 
@@ -523,7 +523,7 @@ test('Google image generation reads final inline PNG and keeps secrets out of re
     assert.equal(options.body.includes(GOOGLE_KEY), false);
     return geminiResponse([{ thought: true, inlineData: { mimeType: 'image/png', data: 'not-an-image' } }, { text: 'Generated image' }, { inlineData: { mimeType: 'image/png', data: PNG } }]);
   };
-  assert.deepEqual(await ai.generateImage('바다 위의 햇살'), { src: `data:image/png;base64,${PNG}`, alt: '바다 위의 햇살', caption: 'AI 생성 삽화' });
+  assert.deepEqual(await ai.generateImage('바다 위의 햇살'), { src: `data:image/png;base64,${PNG}`, alt: '바다 위의 햇살', caption: '' });
 });
 
 test('Google image data supports structurally valid JPEG and WebP', async () => {

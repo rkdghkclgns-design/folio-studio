@@ -116,6 +116,10 @@ AI 결과의 사실·인용·표현은 출판 전 저자가 검토해야 합니�
 
 장별 **프리뷰**에서 Markdown 제목·강조·목록·표·도표를 렌더링합니다. **책 미리보기**는 표지·목차·본문을 페이지로 나누고 이전/다음 버튼, 방향키, 터치 넘김을 지원합니다. 넓은 화면은 펼친 책, 좁은 화면은 한 쪽씩 보여 주며, 기기의 동작 줄이기 설정을 따릅니다. 앱·독립 HTML·EPUB은 한국어 단어를 우선 유지하고, 긴 URL처럼 넘치는 문자열만 줄바꿈하도록 설정합니다. 실제 EPUB의 줄바꿈은 리더기와 사용자 글꼴 설정에도 영향을 받습니다.
 
+**책 미리보기 → 에디터**에서 장을 선택해 제목·원고를 수정하고, 다시 **프리뷰**로 돌아가 배치를 확인할 수 있습니다. 메인 편집 화면과 책 미리보기 에디터 모두 이미지·앱 도표 복사/붙여넣기, 이미지 파일 넣기, HTML·스프레드시트 표의 Markdown 변환을 지원합니다. 이미지·도표 너비는 25~100%로 조절하며, 강조색과 선택 문장 강조도 적용할 수 있습니다.
+
+저장된 기존 책에는 빠진 **시작말·맺음말**의 편집 가능한 초안을 추가하고, 적용 전 상태를 수정 이력에 보관합니다. 본문 장과 제작 진행 기록은 유지하며, 반복해서 열어도 앞뒤말을 중복 추가하지 않습니다. 정확히 **AI 생성 삽화**인 기본 캡션은 제거하고, 사용자가 쓴 다른 캡션과 대체 텍스트는 유지합니다. 시작말·맺음말 작성과 이 갱신에는 AI API 비용이 발생하지 않습니다. 자세한 사용법과 한도는 [책 미리보기·미디어 편집 안내](docs/BOOK-EDITOR-UPGRADE.md)를 참고하세요.
+
 **HTML 내보내기**에도 같은 책 넘김 뷰어를 포함하므로 내려받은 단일 파일을 오프라인에서 열 수 있습니다. 인쇄용 출력은 정적 문서로 제공하며, EPUB의 페이지 전환은 사용하는 리더기가 결정합니다. PDF·EPUB에 웹 애니메이션이 그대로 적용되는 것은 아닙니다.
 
 ## 출판 준비 자동화와 경쟁 도구 비교
@@ -172,10 +176,12 @@ python -m http.server 4173 --directory dist
 ```sh
 npm ci
 npm test
-node --test ui-tests.mjs
+node --max-old-space-size=512 --test --test-concurrency=1 ui-tests.mjs
 python3 -m unittest discover -s companion -p 'test_*.py'
 npm run validate:epub
 ```
+
+`npm test`는 테스트 파일을 하나씩 실행하며 V8 old-space를 프로세스당 512MiB로 제한합니다. 전체 프로세스 RSS 상한을 뜻하지 않습니다. 중복 전체 실행, 큰 실패 출력, 종료되지 않은 DOM·타이머를 줄이는 방법과 이번 PC의 관측은 [메모리·테스트 운영 안내](docs/MEMORY-TESTING.md)에 정리했습니다.
 
 EPUBCheck 검증 명령은 Java와 네트워크 접근이 필요하며 고정된 공식 배포본을 받아 체크섬을 검사합니다. 검증 결과는 CI 산출물로 보관합니다.
 
@@ -201,6 +207,10 @@ EPUBCheck 검증 명령은 Java와 네트워크 접근이 필요하며 고정된
 - `dist/diagrams.js`: 도표 스키마·수치 근거 검사, 표·흐름도·SVG 차트와 접근성 데이터 표
 - `dist/export.js`: 무의존성 ZIP/EPUB 3 생성, 책 넘김 HTML·인쇄용 HTML·Markdown 내보내기
 - `dist/book-preview.js`, `dist/book-preview.css`: 페이지 분할, 펼친 책·한 쪽 보기, 책 넘김
+- `dist/book-preview-editor.js`: 책 미리보기의 프리뷰·에디터 전환과 장 선택
+- `dist/book-editor.js`, `dist/book-editor.css`: 공용 원고 편집기, 미디어 클립보드·크기·색상·문장 강조
+- `dist/book-matter.js`: 시작말·맺음말 자동 보완, 기존 도서 마이그레이션과 읽기 순서
+- `dist/media-style.js`: 이미지·도표·문장 강조의 공통 서식 검증과 출력 스타일
 - `dist/publication.js`, `dist/publication-ui.js`, `dist/publication.css`: 채널별 출판 정보·점검·판권·판본 이력·준비 ZIP
 - `dist/publication-cover.js`: 판매용 JPG 표지 합성과 실제 JPEG 검사
 - `scripts/validate-epub.mjs`: 고정 EPUBCheck 배포본 검증과 대표 EPUB 검사

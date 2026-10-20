@@ -2,6 +2,7 @@
 import { buildEpub, exportHTML, exportMarkdown, buildArchive } from './export.js';
 import { parseDiagramBlocks } from './diagrams.js';
 import { coverSettings, validatePreparedCover } from './publication-cover.js';
+import { getReadingChapters } from './book-matter.js';
 
 export const PUBLICATION_REVIEW_DATE = '2026-10-20';
 export const PUBLICATION_LINKS = Object.freeze({
@@ -78,14 +79,14 @@ export function isValidISBN(value) {
 /** An edit makes earlier human review acknowledgements stale; this is not a security hash. */
 export function publicationFingerprint(project, metadata = project.publication) {
   const m = normalizePublication(metadata);
-  const text = JSON.stringify([project.title, project.subtitle, project.author, project.description, project.language, project.reviewDesk, project.coverImage, project.coverBackground, project.coverDesign, project.theme, [m.channel, m.publisher, m.publicationDate, m.isbn, m.price, m.currency, m.rightsHolder, m.rightsStatement, m.aiDisclosure, m.aiTools, m.edition, m.coverWidth, m.coverHeight], project.registeredSources, project.sharedReviewSources, project.production?.brief?.sourceMarkdown, project.production?.brief?.sourceImages, (project.chapters || []).map(c => [c.title, c.content, c.image, c.figures])]);
+  const text = JSON.stringify([project.title, project.subtitle, project.author, project.description, project.language, project.reviewDesk, project.coverImage, project.coverBackground, project.coverDesign, project.theme, [m.channel, m.publisher, m.publicationDate, m.isbn, m.price, m.currency, m.rightsHolder, m.rightsStatement, m.aiDisclosure, m.aiTools, m.edition, m.coverWidth, m.coverHeight], project.registeredSources, project.sharedReviewSources, project.production?.brief?.sourceMarkdown, project.production?.brief?.sourceImages, getReadingChapters(project).map(c => [c.id, c.kind, c.title, c.content, c.image, c.figures])]);
   let hash = 2166136261;
   for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
   return `v1-${(hash >>> 0).toString(16)}-${text.length}`;
 }
 
 export function publicationReadiness(project, metadata = project.publication) {
-  const m = normalizePublication(metadata), chapters = project.chapters || [], checks = [];
+  const m = normalizePublication(metadata), chapters = getReadingChapters(project), checks = [];
   const add = (id, label, state, detail, kind = 'automatic') => checks.push({ id, label, state, detail, kind });
   add('title', '제목과 저자', plain(project.title) && plain(project.author) ? 'pass' : 'block', '책 정보에서 제목과 저자를 입력하세요. 표지·판권·판매 페이지의 표기가 일치해야 합니다.');
   add('manuscript', '비어 있는 장', chapters.length && chapters.every(c => plain(c.content)) ? 'pass' : 'block', `${chapters.filter(c => !plain(c.content)).length}개의 빈 장이 있습니다.`);

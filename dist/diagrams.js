@@ -1,3 +1,5 @@
+import { normalizeMediaPresentation, mediaPresentationAttributes, mediaAccentPalette } from './media-style.js';
+
 /** Small, portable diagrams. Only validated data is ever turned into markup. */
 const FIELDS = ['type', 'title', 'caption', 'columns', 'rows', 'labels', 'values', 'unit', 'evidence'];
 const TYPES = new Set(['table', 'bar', 'line', 'flow']);
@@ -42,7 +44,7 @@ function hasExactNumber(quote, label, value, unit) {
 
 /** Validate the shared JSON contract. evidenceText enables numeric grounding. */
 export function validateDiagram(value, { evidenceText } = {}) {
-  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== FIELDS.length || FIELDS.some(field => !Object.hasOwn(value, field)) || Object.keys(value).some(field => !FIELDS.includes(field))) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || FIELDS.some(field => !Object.hasOwn(value, field)) || Object.keys(value).some(field => !FIELDS.includes(field) && field !== 'presentation')) {
     invalid('필수 항목이 빠졌거나 허용하지 않는 항목이 있습니다.');
   }
   if (!TYPES.has(value.type)) invalid('지원하지 않는 도표 유형입니다.');
@@ -85,7 +87,11 @@ export function validateDiagram(value, { evidenceText } = {}) {
       });
     }
   }
-  const serialized = JSON.stringify(Object.fromEntries(FIELDS.map(field => [field, value[field]])));
+  const normalized = Object.fromEntries(FIELDS.map(field => [field, value[field]]));
+  if (value.presentation !== undefined) {
+    try { normalized.presentation = normalizeMediaPresentation(value.presentation); } catch (error) { invalid(error.message); }
+  }
+  const serialized = JSON.stringify(normalized);
   if (serialized.length > MAX_JSON) invalid('도표 데이터는 12,000자 이내여야 합니다.');
   return JSON.parse(serialized);
 }
@@ -186,6 +192,7 @@ function dataTable(columns, rows, caption) {
 }
 
 function chart(value) {
+  const colors = mediaAccentPalette(value.presentation);
   const left = 110, right = 690, top = 28, bottom = 275;
   const minimum = Math.min(0, ...value.values), maximum = Math.max(0, ...value.values);
   const range = maximum - minimum || 1;
@@ -199,11 +206,11 @@ function chart(value) {
   if (value.type === 'bar') {
     drawing += value.values.map((number, index) => {
       const position = y(number), width = step * 0.6;
-      return `<rect x="${decimal(x(index) - width / 2)}" y="${decimal(Math.min(position, zero))}" width="${decimal(width)}" height="${decimal(Math.abs(position - zero))}" fill="${number < 0 ? '#967264' : '#46765b'}" />`;
+      return `<rect x="${decimal(x(index) - width / 2)}" y="${decimal(Math.min(position, zero))}" width="${decimal(width)}" height="${decimal(Math.abs(position - zero))}" fill="${number < 0 ? colors.negative : colors.line}" />`;
     }).join('');
   } else {
-    drawing += `<polyline points="${value.values.map((number, index) => `${decimal(x(index))},${decimal(y(number))}`).join(' ')}" fill="none" stroke="#46765b" stroke-width="3" />`;
-    drawing += value.values.map((number, index) => `<circle cx="${decimal(x(index))}" cy="${decimal(y(number))}" r="4" fill="#46765b" />`).join('');
+    drawing += `<polyline points="${value.values.map((number, index) => `${decimal(x(index))},${decimal(y(number))}`).join(' ')}" fill="none" stroke="${colors.line}" stroke-width="3" />`;
+    drawing += value.values.map((number, index) => `<circle cx="${decimal(x(index))}" cy="${decimal(y(number))}" r="4" fill="${colors.line}" />`).join('');
   }
   drawing += value.labels.map((label, index) => {
     const letters = [...label];
@@ -226,7 +233,7 @@ export function renderDiagram(diagram) {
     content = chart(value) + dataTable(['항목', `값 (${value.unit})`], value.labels.map((label, index) => [`${index + 1}. ${label}`, numberText(value.values[index])]), `${value.title} — 데이터`);
     content += `<div class="folio-diagram-evidence"><p>수치 근거</p><ol>${value.evidence.map(quote => `<li>${escape(quote)}</li>`).join('')}</ol></div>`;
   }
-  return `<figure class="folio-diagram folio-diagram-${value.type}" role="group" aria-label="${escape(value.title)}">${caption}${content}</figure>`;
+  return `<figure class="folio-diagram folio-diagram-${value.type}"${mediaPresentationAttributes(value.presentation)} role="group" aria-label="${escape(value.title)}">${caption}${content}</figure>`;
 }
 
 export const DIAGRAM_CSS = `

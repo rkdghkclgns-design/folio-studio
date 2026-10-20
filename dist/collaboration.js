@@ -7,9 +7,10 @@ const MAX_UNITS=2500,MAX_BYTES=64*1024*1024;
 const CHAPTER_FIELDS=['title','kind','editorialNotes','imagePrompt','image','figures'];
 const MAX_DETAIL_CHAPTERS=100,MAX_PARAGRAPHS=200,MAX_DETAIL_PARAGRAPHS=2000,MAX_PARAGRAPH_TEXT=100000;
 const validHash=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
-const labelFor=key=>key.startsWith('chapter:')?'장 '+key.slice(8):key==='chapter-order'?'목차 순서':key.startsWith('comment:')?'검토 의견':key.startsWith('citation:')?'출처 연결':key.startsWith('approval:')?'검토 완료':key;
+const labelFor=key=>key==='matter:preface'?'시작말':key==='matter:afterword'?'맺음말':key.startsWith('chapter:')?'장 '+key.slice(8):key==='chapter-order'?'목차 순서':key.startsWith('comment:')?'검토 의견':key.startsWith('citation:')?'출처 연결':key.startsWith('approval:')?'검토 완료':key;
 function units(project) {
   const entries=fields.map(k=>[k,k==='coverDesign'?normalizeCoverDesign(project[k]):['coverImage','coverBackground'].includes(k)?project[k]??null:project[k]??(k==='language'?'ko':k==='theme'?'sage':'')]);
+  for(const role of ['preface','afterword'])entries.push(['matter:'+role,project.bookMatter?.[role]??null]);
   entries.push(['chapter-order',project.chapters.map(c=>c.id)]);
   for(const c of project.chapters)entries.push(['chapter:'+c.id,{id:c.id,title:c.title,content:c.content,kind:c.kind||'',editorialNotes:c.editorialNotes||[],imagePrompt:c.imagePrompt||'',image:c.image??null,figures:c.figures||[]}]);
   for(const [prefix,list] of [['citation',project.reviewDesk?.citations],['comment',project.reviewDesk?.comments],['approval',project.reviewDesk?.approvals]])for(const r of list||[])entries.push([prefix+':'+r.id,r]);
@@ -97,6 +98,7 @@ export async function createExchange(project,{name,role='author',includeSources=
   if(!name?.trim()||name.length>120||!['author','editor','reviewer'].includes(role))throw new Error('공유하는 사람의 이름과 역할을 입력하세요.');
   const content=Object.fromEntries(fields.filter(k=>project[k]!==undefined&&project[k]!==null).map(k=>[k,clone(project[k])]));
   content.id=project.id;content.chapters=clone(project.chapters);content.reviewDesk=clone(project.reviewDesk||{version:1,citations:[],comments:[],approvals:[]});
+  if(project.bookMatter!==undefined)content.bookMatter=clone(project.bookMatter);
   if(includeSources){content.sharedReviewSources=clone(reviewSources(project));content.registeredSources=clone(project.registeredSources);if(!content.registeredSources&&project.production?.brief)content.registeredSources={sourceMarkdown:project.production.brief.sourceMarkdown||'',sourceName:project.production.brief.sourceName||'',sourceManifest:clone(project.production.brief.sourceManifest),sourceImages:clone(project.production.brief.sourceImages)};}
   const previous=validateCollaboration(project.collaboration);
   const origin=previous||await createOrigin(content,project.id);
@@ -140,6 +142,8 @@ export async function resolveExchangeMerge(plan,choices={}) {
   for(const c of plan.conflicts){if(!['local','remote'].includes(choices[c.key]))throw new Error('모든 충돌 항목에서 보관할 내용을 선택하세요.');selected.set(c.key,clone(c[choices[c.key]]));}
   const result=clone(plan.local);
   for(const field of fields){const value=selected.get(field);if(value===null)delete result[field];else result[field]=value;}
+  const matter=Object.fromEntries(['preface','afterword'].filter(role=>selected.get('matter:'+role)).map(role=>[role,clone(selected.get('matter:'+role))]));
+  if(Object.keys(matter).length)result.bookMatter=matter;else delete result.bookMatter;
   const chapters=new Map([...selected].filter(([k,v])=>k.startsWith('chapter:')&&v).map(([k,v])=>[k.slice(8),v]));
   const order=selected.get('chapter-order')||[];
   result.chapters=[...new Set([...order,...chapters.keys()])].filter(id=>chapters.has(id)).map(id=>chapters.get(id));
