@@ -105,7 +105,7 @@ button, a, label, p, h1, h2, h3 { overflow-wrap: anywhere; }
 }
 .workspace-tools .tool-group { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .workspace-tools .tool-group:last-child { margin-left: auto; }
-.workspace-tools .button { min-height: 40px; background: #fff; }
+.workspace-tools .button { min-height: 40px; }
 .workspace-tools .ai-connection { margin-left: auto; }
 .ai-connection { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; }
 .ai-connection .connection-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #8a957f; }

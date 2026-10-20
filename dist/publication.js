@@ -78,7 +78,7 @@ export function isValidISBN(value) {
 /** An edit makes earlier human review acknowledgements stale; this is not a security hash. */
 export function publicationFingerprint(project, metadata = project.publication) {
   const m = normalizePublication(metadata);
-  const text = JSON.stringify([project.title, project.subtitle, project.author, project.description, project.language, project.reviewDesk, project.coverImage, project.coverBackground, project.coverDesign, project.theme, [m.channel, m.publisher, m.publicationDate, m.isbn, m.price, m.currency, m.rightsHolder, m.rightsStatement, m.aiDisclosure, m.aiTools, m.edition, m.coverWidth, m.coverHeight], project.registeredSources, project.production?.brief?.sourceMarkdown, project.production?.brief?.sourceImages, (project.chapters || []).map(c => [c.title, c.content, c.image, c.figures])]);
+  const text = JSON.stringify([project.title, project.subtitle, project.author, project.description, project.language, project.reviewDesk, project.coverImage, project.coverBackground, project.coverDesign, project.theme, [m.channel, m.publisher, m.publicationDate, m.isbn, m.price, m.currency, m.rightsHolder, m.rightsStatement, m.aiDisclosure, m.aiTools, m.edition, m.coverWidth, m.coverHeight], project.registeredSources, project.sharedReviewSources, project.production?.brief?.sourceMarkdown, project.production?.brief?.sourceImages, (project.chapters || []).map(c => [c.title, c.content, c.image, c.figures])]);
   let hash = 2166136261;
   for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
   return `v1-${(hash >>> 0).toString(16)}-${text.length}`;

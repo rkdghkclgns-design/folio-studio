@@ -7,6 +7,7 @@ import { renderPublicationPanel, mountPublicationPanel } from './dist/publicatio
 const fixture = extra => ({ id: 'publication-fixture', title: '출판할 책', author: '홍길동', description: '처음 만드는 책', language: 'ko', theme: 'sage', updatedAt: '2026-10-19T00:00:00Z', chapters: [{ id: 'one', title: '첫 장', content: '# 시작\n\n**완성된** 본문입니다.' }], ...extra });
 const metadata = extra => normalizePublication({ channel: 'domestic', publisher: '작은 출판사', publicationDate: '2026-10-20', price: '5000', rightsHolder: '홍길동', aiDisclosure: 'none', ...extra });
 const check = (report, id) => report.checks.find(item => item.id === id);
+const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 
 function unzipStored(bytes) {
   const files = new Map(), view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), decoder = new TextDecoder();
@@ -88,17 +89,21 @@ test('open publication panel clears stale review flags before saving or exportin
     assert.equal(panel.querySelector('[name="rightsConfirmed"]').checked, true);
     p.chapters[0].content += '\n\n검토 뒤 바뀐 내용';
     panel.querySelector('[data-publication-action="guide"]').click();
+    await settle();
     assert.equal(downloads.length, 0, 'the first stale action explains invalidated review');
     for (const name of ['rightsConfirmed', 'proofreadConfirmed', 'deviceReviewConfirmed']) {
       assert.equal(panel.querySelector(`[name="${name}"]`).checked, false); assert.equal(p.publication[name], false);
     }
     assert.match(panel.querySelector('.publication-message').textContent, /다시 검토/);
     const title = panel.querySelector('[name="publisher"]'); title.value = '수정 출판사'; title.dispatchEvent(new win.Event('change', { bubbles: true }));
+    await settle();
     assert.equal(p.publication.rightsConfirmed, false, 'an unrelated edit cannot restore review flags');
     const checkbox = panel.querySelector('[name="rightsConfirmed"]'); checkbox.checked = true; checkbox.dispatchEvent(new win.Event('change', { bubbles: true }));
+    await settle();
     assert.equal(p.publication.rightsConfirmed, true); assert.equal(p.publication.proofreadConfirmed, false);
     assert.equal(p.publication.reviewFingerprint, publicationFingerprint(p));
     panel.querySelector('[data-publication-action="guide"]').click();
+    await settle();
     assert.equal(downloads.length, 1); assert.equal(downloads[0][1], 'folio-publishing-guide.md');
     mounted.dispose(); title.value = '저장하지 않음'; title.dispatchEvent(new win.Event('change', { bubbles: true }));
     assert.equal(p.publication.publisher, '수정 출판사');
@@ -119,12 +124,14 @@ test('publication typing persists before blur and dispose removes input autosave
     publisher.focus(); publisher.value = '입력 중인 출판사';
     publisher.setSelectionRange(3, 3);
     publisher.dispatchEvent(new win.Event('input', { bubbles: true }));
+    await settle();
     assert.equal(p.publication.publisher, '입력 중인 출판사');
     assert.equal(win.document.activeElement === publisher, true, 'autosave must retain focus');
     assert.equal(publisher.selectionStart, 3, 'autosave must retain the caret');
     const biography = panel.querySelector('[name="authorBio"]');
     biography.focus(); biography.value = '저자 소개를 쓰는 중입니다.\n포커스를 옮기기 전에 저장합니다.';
     biography.dispatchEvent(new win.Event('input', { bubbles: true }));
+    await settle();
     assert.equal(win.document.activeElement === biography, true);
     assert.equal(snapshots.length, 2, 'input events must save without waiting for change or blur');
     const restored = JSON.parse(snapshots.at(-1));
@@ -205,10 +212,151 @@ test('publication panel records history and retains it while later metadata chan
   try {
     panel.querySelector('[data-publication-action="record"]').click(); await new Promise(r=>setTimeout(r,0));
     assert.equal(p.publication.history.length,1,panel.querySelector('.publication-message').textContent); assert.equal(p.publication.history[0].review.rightsConfirmed,true);
-    const price=panel.querySelector('[name="price"]'); price.value='7000'; price.dispatchEvent(new win.Event('input',{bubbles:true}));
+    const price=panel.querySelector('[name="price"]'); price.value='7000'; price.dispatchEvent(new win.Event('input',{bubbles:true})); await settle();
     assert.equal(p.publication.rightsConfirmed,false); assert.equal(p.publication.history.length,1); assert.match(panel.querySelector('[data-publication-history]').textContent,/이전 내용/);
-    const check=panel.querySelector('[name="rightsConfirmed"]');check.checked=true;check.dispatchEvent(new win.Event('change',{bubbles:true}));
+    const check=panel.querySelector('[name="rightsConfirmed"]');check.checked=true;check.dispatchEvent(new win.Event('change',{bubbles:true})); await settle();
     assert.equal(p.publication.rightsConfirmed,true);assert.equal(p.publication.reviewFingerprint,publicationFingerprint(p));
     assert.equal(validatePublication(JSON.parse(JSON.stringify(p.publication))).history.length,1);
   }finally{mounted.dispose();await win.happyDOM.close();}
+});
+
+test('shared source edits expire all publication acknowledgements', () => {
+  const p = fixture({ sharedReviewSources: [{ id: 'production:source.md', name: 'source.md', content: '효과는 30%입니다.' }] });
+  p.publication = metadata({ rightsConfirmed: true, proofreadConfirmed: true, deviceReviewConfirmed: true });
+  p.publication.reviewFingerprint = publicationFingerprint(p);
+  assert.equal(publicationReadiness(p).staleReview, false);
+  p.sharedReviewSources[0].content = '효과는 3%입니다.';
+  const report = publicationReadiness(p);
+  assert.equal(report.staleReview, true);
+  for (const id of ['rights', 'proofread', 'devices']) assert.equal(check(report, id).state, 'warning');
+});
+
+test('publication actions reject async storage errors and false results before exporting or claiming success', async () => {
+  for (const failure of ['reject', 'false']) for (const action of ['guide', 'package', 'cover', 'record', 'check']) {
+    const win = new Window({ settings: { disableJavaScriptEvaluation: true } });
+    const p = fixture({ publication: metadata({ edition: '초판' }) }), downloads = [], notices = [];
+    let coverCalls = 0;
+    win.document.body.innerHTML = renderPublicationPanel(p);
+    const panel = win.document.querySelector('.publication-panel');
+    const mounted = mountPublicationPanel(panel, {
+      getProject: () => p,
+      onSave: async () => { await settle(); if (failure === 'reject') throw new Error('저장 공간이 부족합니다.'); return false; },
+      download: (...args) => downloads.push(args), onNotify: (...args) => notices.push(args),
+      makeCover: async () => { ++coverCalls; throw new Error('저장 실패 후 표지를 만들면 안 됩니다.'); }
+    });
+    try {
+      panel.querySelector(`[data-publication-action="${action}"]`).click();
+      assert.match(panel.querySelector('.publication-message').textContent, /저장.*확인/);
+      assert.equal(panel.querySelector('[data-publication-action="package"]').disabled, true);
+      await settle(); await settle();
+      assert.equal(downloads.length, 0, `${action}/${failure} must not download`);
+      assert.equal(coverCalls, 0);
+      assert.match(panel.querySelector('.publication-message').textContent, /저장.*(?:부족|못했습니다)/);
+      assert.equal(notices.length, 1); assert.equal(notices[0][1], true);
+      assert.equal(panel.querySelector('[data-publication-action="package"]').disabled, false);
+      assert.equal(p.publication.history.length, 0);
+    } finally { mounted.dispose(); await win.happyDOM.close(); }
+  }
+});
+
+test('publication exports wait for storage completion and ignore duplicate clicks', async () => {
+  const win = new Window({ settings: { disableJavaScriptEvaluation: true } });
+  const p = fixture({ publication: metadata() }), downloads = [];
+  let complete, saves = 0;
+  win.document.body.innerHTML = renderPublicationPanel(p);
+  const panel = win.document.querySelector('.publication-panel');
+  const mounted = mountPublicationPanel(panel, { getProject: () => p, onSave: value => {
+    ++saves;
+    return new Promise(resolve => { complete = () => { p.publication = value; resolve(true); }; });
+  }, download: (...args) => downloads.push(args) });
+  try {
+    const button = panel.querySelector('[data-publication-action="guide"]'); button.click(); button.click();
+    await settle(); assert.equal(saves, 1); assert.equal(downloads.length, 0);
+    assert.doesNotMatch(panel.querySelector('.publication-message').textContent, /준비했습니다/);
+    complete(); await settle();
+    assert.equal(downloads.length, 1); assert.equal(downloads[0][1], 'folio-publishing-guide.md');
+    assert.equal(button.disabled, false);
+  } finally { mounted.dispose(); await win.happyDOM.close(); }
+});
+
+test('publication autosaves serialize rapid edits before a requested export', async () => {
+  const win = new Window({ settings: { disableJavaScriptEvaluation: true } });
+  const p = fixture({ publication: metadata() }), pending = [], saved = [], downloads = [];
+  win.document.body.innerHTML = renderPublicationPanel(p);
+  const panel = win.document.querySelector('.publication-panel');
+  const mounted = mountPublicationPanel(panel, { getProject: () => p, onSave: value => new Promise(resolve => {
+    pending.push(() => { p.publication = value; saved.push(value.publisher); resolve(true); });
+  }), download: (...args) => downloads.push(args) });
+  try {
+    const publisher = panel.querySelector('[name="publisher"]');
+    publisher.value = '첫 입력'; publisher.dispatchEvent(new win.Event('input', { bubbles: true }));
+    publisher.value = '최종 입력'; publisher.dispatchEvent(new win.Event('input', { bubbles: true }));
+    panel.querySelector('[data-publication-action="guide"]').click();
+    assert.equal(pending.length, 1, 'only one write may be active');
+    assert.equal(downloads.length, 0);
+    pending.shift()(); await settle(); assert.deepEqual(saved, ['첫 입력']); assert.equal(pending.length, 1);
+    pending.shift()(); await settle(); assert.deepEqual(saved, ['첫 입력', '최종 입력']); assert.equal(pending.length, 1);
+    pending.shift()(); await settle();
+    assert.equal(p.publication.publisher, '최종 입력'); assert.equal(downloads.length, 1);
+    assert.deepEqual(saved, ['첫 입력', '최종 입력', '최종 입력']);
+    assert.equal(downloads[0][1], 'folio-publishing-guide.md');
+  } finally { mounted.dispose(); await win.happyDOM.close(); }
+});
+
+test('publication pending saves cannot download or update a disposed panel', async () => {
+  const win = new Window({ settings: { disableJavaScriptEvaluation: true } });
+  const p = fixture({ publication: metadata() }), downloads = [], notices = [];
+  let complete;
+  win.document.body.innerHTML = renderPublicationPanel(p);
+  const panel = win.document.querySelector('.publication-panel');
+  const mounted = mountPublicationPanel(panel, { getProject: () => p, onSave: value => new Promise(resolve => {
+    complete = () => { p.publication = value; resolve(true); };
+  }), download: (...args) => downloads.push(args), onNotify: (...args) => notices.push(args) });
+  try {
+    panel.querySelector('[data-publication-action="guide"]').click();
+    const message = panel.querySelector('.publication-message').textContent;
+    mounted.dispose(); complete(); await settle();
+    assert.equal(downloads.length, 0); assert.equal(notices.length, 0);
+    assert.equal(panel.querySelector('.publication-message').textContent, message);
+  } finally { mounted.dispose(); await win.happyDOM.close(); }
+});
+
+test('publication history reports failure when its second asynchronous save fails', async () => {
+  const win = new Window({ settings: { disableJavaScriptEvaluation: true } });
+  const p = fixture({ publication: metadata({ edition: '초판' }) }), notices = [];
+  let saves = 0;
+  win.document.body.innerHTML = renderPublicationPanel(p);
+  const panel = win.document.querySelector('.publication-panel');
+  const mounted = mountPublicationPanel(panel, { getProject: () => p, onSave: async value => {
+    await settle(); if (++saves === 2) return false; p.publication = value; return true;
+  }, onNotify: (...args) => notices.push(args) });
+  try {
+    panel.querySelector('[data-publication-action="record"]').click();
+    await settle(); await settle(); await settle();
+    assert.equal(saves, 2); assert.equal(p.publication.history.length, 0);
+    assert.match(panel.querySelector('.publication-message').textContent, /저장하지 못했습니다/);
+    assert.equal(notices.length, 1); assert.equal(notices[0][1], true);
+    assert.doesNotMatch(panel.querySelector('[data-publication-history]').textContent, /현재 판본과 일치/);
+  } finally { mounted.dispose(); await win.happyDOM.close(); }
+});
+
+test('publication typing does not announce save success after an asynchronous storage failure', async () => {
+  const win = new Window({ settings: { disableJavaScriptEvaluation: true } });
+  const p = fixture({ publication: metadata() }), notices = [];
+  let fail;
+  win.document.body.innerHTML = renderPublicationPanel(p);
+  const panel = win.document.querySelector('.publication-panel');
+  const mounted = mountPublicationPanel(panel, { getProject: () => p, onSave: () => new Promise((resolve, reject) => {
+    fail = () => reject(new Error('저장 공간이 부족합니다.'));
+  }), onNotify: (...args) => notices.push(args) });
+  try {
+    const publisher = panel.querySelector('[name="publisher"]');
+    publisher.value = '수정한 출판사'; publisher.dispatchEvent(new win.Event('input', { bubbles: true }));
+    await settle();
+    assert.match(panel.querySelector('.publication-message').textContent, /저장하고 있습니다/);
+    fail(); await settle();
+    assert.match(panel.querySelector('.publication-message').textContent, /저장 공간이 부족/);
+    assert.equal(notices.length, 1); assert.equal(notices[0][1], true);
+    assert.equal(p.publication.publisher, '작은 출판사');
+  } finally { mounted.dispose(); await win.happyDOM.close(); }
 });

@@ -21,7 +21,7 @@ export const BOOK_PREVIEW_CSS = `
 .folio-book-page-header{font:10px/1.6 'Pretendard','Malgun Gothic',sans-serif;letter-spacing:.08em;color:#7b806f;padding-bottom:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:none}
 .folio-book-page-body{flex:1;min-height:0;overflow:hidden;display:flow-root;word-break:keep-all;overflow-wrap:anywhere;line-break:strict}
 .folio-book-page-body>:first-child{margin-top:0}
-.folio-book-page-body h1,.folio-book-page-body h2,.folio-book-page-body h3,.folio-book-page-body h4{font-family:inherit;font-weight:600;line-height:1.5;letter-spacing:-.025em}
+.folio-book-page-body h1,.folio-book-page-body h2,.folio-book-page-body h3,.folio-book-page-body h4,.folio-book-page-body h5,.folio-book-page-body h6{font-family:inherit;font-weight:600;line-height:1.5;letter-spacing:-.025em;break-after:avoid;page-break-after:avoid}
 .folio-book-page-body h1{font-size:1.8em;margin:0 0 1.2em}.folio-book-page-body h2{font-size:1.4em;margin:1.6em 0 .7em}.folio-book-page-body h3{font-size:1.15em;margin:1.4em 0 .6em}
 .folio-book-page-body p{margin:0 0 1em;line-height:inherit}.folio-book-page-body ul,.folio-book-page-body ol{padding-left:1.4em;margin:0 0 1em}.folio-book-page-body li{margin:.3em 0}
 .folio-book-page-body a{color:inherit;text-decoration:underline;text-underline-offset:.15em}.folio-book-page-body blockquote{margin:1em 0;padding:.2em 0 .2em 1em;border-left:2px solid #a4b29a;color:#586353}
@@ -177,8 +177,50 @@ export function mountBookPreview(host, options = {}) {
       const roomHeight = body.clientHeight;
       if (!roomHeight) { pages.push({ ...base, html: String(section.html || '') }); return; }
       const commit = overflow => { if (body.childNodes.length) pages.push({ ...base, html: body.innerHTML, overflow: Boolean(overflow) }); body.replaceChildren(); };
+      const isHeading = node => /^H[1-6]$/.test(node?.tagName || '');
+      const hasTwoLines = node => {
+        const style = win.getComputedStyle(node);
+        const lineHeight = parseFloat(style.lineHeight) || (parseFloat(style.fontSize) || 15) * 1.85;
+        const height = node.getBoundingClientRect().height;
+        // Real layout measures the lead fragment, not the whole paragraph. DOM-only
+        // surrogates have no rectangles; a conservative text floor keeps them usable.
+        return height > 0 ? height + 1 >= lineHeight * 2 : node.textContent.trim().length >= 24;
+      };
       while (queue.length) {
-        const node = queue.shift(); body.append(node);
+        const node = queue.shift();
+        if (isHeading(node)) {
+          // Consecutive headings belong to the following content. Keep the small
+          // chapter-number marker with its opener as well, never on an empty page.
+          const headings = [node];
+          while (isHeading(queue[0])) headings.push(queue.shift());
+          if (body.childNodes.length === 1 && body.firstElementChild?.classList.contains('chapter-number')) headings.unshift(body.firstElementChild);
+          headings.forEach(heading => heading.remove());
+          const preceding = body.childNodes.length;
+          body.append(...headings);
+          const following = queue[0];
+          if (following) body.append(following);
+          const fitsTogether = body.scrollHeight <= roomHeight + 1;
+          if (following) following.remove();
+          if (fitsTogether) continue;
+          const split = following && splitProse(following, body, roomHeight);
+          if (split) body.append(split[0]);
+          const usefulLead = split && hasTwoLines(split[0]);
+          if (split) split[0].remove();
+          if (usefulLead) {
+            body.append(split[0]); queue.shift(); commit(false); queue.unshift(split[1]);
+          } else if (preceding) {
+            headings.forEach(heading => heading.remove());
+            commit(false); queue.unshift(...headings);
+          } else {
+            // The heading group and its first content cannot fit even on a fresh
+            // page (e.g. a tall diagram). Keep the group in one accessible scroll
+            // region; consuming it guarantees progress without losing any text.
+            if (following) { body.append(following); queue.shift(); }
+            commit(body.scrollHeight > roomHeight + 1);
+          }
+          continue;
+        }
+        body.append(node);
         if (body.scrollHeight <= roomHeight + 1) continue;
         node.remove();
         const split = splitProse(node, body, roomHeight);

@@ -207,3 +207,99 @@ test('publication archives reject unsafe paths and duplicate entries', () => {
   for (const path of ['../secret', '/absolute', 'book/../../secret', 'book\\secret']) assert.throws(() => buildArchive([[path, 'text']]), /파일 목록/);
   assert.throws(() => buildArchive([['a', 'one'], ['a', 'two']]), /중복/);
 });
+
+function setupMeasuredLines(width = 390) {
+  const { win, host } = setup(width);
+  const style = win.document.createElement('style');
+  style.textContent = '.folio-book-page-body p{font-size:10px;line-height:10px}';
+  win.document.head.append(style);
+  const height = node => {
+    if (node.nodeType !== 1) return 0;
+    if (node.hasAttribute('data-height')) return Number(node.getAttribute('data-height'));
+    if (node.classList.contains('chapter-number')) return 10;
+    if (/^H[1-6]$/.test(node.tagName)) return 20;
+    return Math.ceil(node.textContent.length / 20) * 10;
+  };
+  Object.defineProperty(win.HTMLElement.prototype, 'clientHeight', { configurable: true, get() { return this.classList.contains('folio-book-page-body') ? 100 : 0; } });
+  Object.defineProperty(win.HTMLElement.prototype, 'scrollHeight', { configurable: true, get() { return this.classList.contains('folio-book-page-body') ? Math.max(100, [...this.children].reduce((sum, child) => sum + height(child), 0)) : height(this); } });
+  win.HTMLElement.prototype.getBoundingClientRect = function() { return { x:0, y:0, top:0, left:0, bottom:height(this), right:width, width, height:height(this) }; };
+  return { win, host };
+}
+
+function readPages(reader, host) {
+  return Array.from({ length: reader.getState().pageCount }, (_, index) => {
+    reader.goTo(index);
+    return host.querySelector('.folio-book-stage .folio-book-page-body').cloneNode(true);
+  });
+}
+
+test('a heading at the page foot moves with at least two lines of following prose', () => {
+  const { win, host } = setupMeasuredLines(280);
+  const before = '앞 문단입니다. '.repeat(15), after = '다음 문단입니다. '.repeat(20);
+  const html = '<p data-height="70">' + before + '</p><h3>상태 전이도의 텍스트 규격화</h3><p>' + after + '</p>';
+  const reader = mountBookPreview(host, { sections: [{ title: '페이지 끝 제목', html }] });
+  try {
+    const pages = readPages(reader, host);
+    assert.equal(pages[0].querySelector('h3'), null);
+    assert.equal(pages[1].firstElementChild.tagName, 'H3');
+    assert.ok(pages[1].querySelector('p').textContent.length > 20);
+    assert.ok(pages.length < 6);
+    assert.equal(pages.map(page => page.textContent).join(''), before + '상태 전이도의 텍스트 규격화' + after);
+    assert.ok(pages.every(page => !page.classList.contains('has-overflow')));
+  } finally { reader.destroy(); win.happyDOM.abort(); }
+});
+
+test('a heading can share the page with two lead lines without forcing the whole paragraph over', () => {
+  const { win, host } = setupMeasuredLines();
+  const text = '계속 읽을 문장입니다. '.repeat(24);
+  const reader = mountBookPreview(host, { sections: [{ title: '두 줄 유지', html: '<p data-height="60">이전 문단</p><h2>다음 절</h2><p>' + text + '</p>' }] });
+  try {
+    const pages = readPages(reader, host), first = pages[0];
+    assert.ok(first.querySelector('h2'));
+    const lead = first.querySelectorAll('p')[1].textContent;
+    assert.ok(lead.length > 20 && lead.length <= 40);
+    assert.ok(lead.length < text.length);
+    assert.equal(pages.map(page => page.textContent).join(''), '이전 문단다음 절' + text);
+  } finally { reader.destroy(); win.happyDOM.abort(); }
+});
+
+test('consecutive headings and the first figure move together', () => {
+  const { win, host } = setupMeasuredLines();
+  const reader = mountBookPreview(host, { sections: [{ title: '연속 제목', html: '<p data-height="50">이전 내용</p><h2>상위 제목</h2><h3>하위 제목</h3><figure data-height="50"><img alt="설명 그림"><figcaption>그림 설명</figcaption></figure>' }] });
+  try {
+    const pages = readPages(reader, host);
+    assert.equal(pages.length, 2);
+    assert.equal(pages[0].querySelector('h2'), null);
+    assert.deepEqual([...pages[1].children].map(node => node.tagName), ['H2','H3','FIGURE']);
+  } finally { reader.destroy(); win.happyDOM.abort(); }
+});
+
+test('oversized heading/table groups consume one accessible page with no lost rows or retry loop', () => {
+  const { win, host } = setupMeasuredLines(280);
+  const rows = Array.from({ length: 30 }, (_, index) => '<tr><td>항목 ' + index + '</td></tr>').join('');
+  const reader = mountBookPreview(host, { sections: [{ title: '큰 표', html: '<p data-height="50">도입</p><h3>표 제목</h3><table data-height="160"><tbody>' + rows + '</tbody></table><p>마지막 문단</p>' }] });
+  try {
+    const pages = readPages(reader, host);
+    assert.equal(pages.length, 3);
+    assert.equal(pages[0].querySelector('h3'), null);
+    assert.ok(pages[1].classList.contains('has-overflow'));
+    assert.equal(pages[1].tabIndex, 0);
+    assert.equal(pages[1].getAttribute('role'), 'region');
+    assert.equal(pages[1].firstElementChild.tagName, 'H3');
+    assert.equal(pages[1].querySelectorAll('tr').length, 30);
+    assert.equal(pages[2].textContent, '마지막 문단');
+  } finally { reader.destroy(); win.happyDOM.abort(); }
+});
+
+test('chapter numbers stay with their opener and oversized title fallback retains Unicode content', () => {
+  const { win, host } = setupMeasuredLines(280);
+  const title = '긴 장 제목 👩‍👩‍👧‍👦', prose = '첫 문장 한글과 😀 기호';
+  const reader = mountBookPreview(host, { sections: [{ title, html: '<p class="chapter-number">05</p><h1 data-height="90">' + title + '</h1><p>' + prose + '</p>' }] });
+  try {
+    const pages = readPages(reader, host);
+    assert.equal(pages.length, 1);
+    assert.equal(pages[0].querySelector('.chapter-number').textContent, '05');
+    assert.equal(pages[0].textContent, '05' + title + prose);
+    assert.ok(pages[0].classList.contains('has-overflow'));
+  } finally { reader.destroy(); win.happyDOM.abort(); }
+});

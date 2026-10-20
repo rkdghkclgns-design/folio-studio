@@ -2,6 +2,7 @@
 import { getCoverPresentation } from './cover.js';
 import { DIAGRAM_CSS, renderDiagram } from './diagrams.js';
 import { BOOK_PREVIEW_CSS, standaloneReaderScript } from './book-preview.js';
+import { withoutPlaceholderHeadings } from './manuscript.js';
 
 const encoder = new TextEncoder();
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
@@ -46,7 +47,7 @@ function normalizeProject(project) {
     chapters: project.chapters.map((chapter, index) => ({
       ...chapter,
       title: clean(chapter?.title).trim() || `${index + 1}장`,
-      content: clean(chapter?.content),
+      content: withoutPlaceholderHeadings(clean(chapter?.content)),
     })),
   };
 }
@@ -121,7 +122,7 @@ function codeMarkup(code, closed = true) {
 
 /** Resolves only validated local figures; export paths are supplied privately below. */
 function renderMarkdownWithFigures(content, figures) {
-  const lines = clean(content).split('\n');
+  const lines = withoutPlaceholderHeadings(clean(content)).split('\n');
   const output = [];
   let paragraph = [], list = [], listType = '', quote = [], code = null;
   const flushParagraph = () => {

@@ -41,7 +41,9 @@ export function mountPublicationPanel(container, { getProject, onSave = () => {}
   const panel = container?.matches?.('.publication-panel') ? container : container?.querySelector('.publication-panel');
   if (!panel || typeof getProject !== 'function') return { dispose() {} };
   const form = panel.querySelector('form'), message = panel.querySelector('.publication-message');
-  let disposed = false, working = false, reviewInvalidated = false, preparedCover = null, previewUrl = null;
+  let disposed = false, working = false, reviewInvalidated = false, preparedCover = null, previewUrl = null, saveTail = null, changeVersion = 0;
+  const projectId = getProject().id;
+  const ensureActive = () => { if (disposed || getProject().id !== projectId) throw new Error('출판 화면이 변경되었습니다. 현재 책에서 다시 실행하세요.'); };
   let displayedFingerprint = publicationFingerprint(getProject());
   const initialMetadata = normalizePublication(getProject().publication);
   for (const select of form.querySelectorAll('select[name]')) if (Object.hasOwn(initialMetadata, select.name)) select.value = initialMetadata[select.name];
@@ -61,27 +63,62 @@ export function mountPublicationPanel(container, { getProject, onSave = () => {}
     next.reviewFingerprint = currentFingerprint;
     return next;
   };
-  const save = () => { const metadata = capture(); onSave(metadata); return metadata; };
+  const save = metadata => {
+    const run = async () => {
+      ensureActive();
+      if (await onSave(metadata) === false) throw new Error('출판 정보를 저장하지 못했습니다. 저장 공간을 확인한 뒤 다시 실행하세요.');
+      ensureActive();
+      return metadata;
+    };
+    const task = saveTail ? saveTail.then(run, run) : run();
+    saveTail = task;
+    const finished = () => { if (saveTail === task) saveTail = null; };
+    task.then(finished, finished);
+    return task;
+  };
   const refresh = metadata => {
     if (disposed) return;
     panel.querySelector('[data-publication-checks]').innerHTML = renderPublicationChecks(getProject(), metadata);
     panel.querySelector('[data-publication-field-map]').innerHTML = renderFieldMap(getProject(), metadata);
     panel.querySelector('[data-publication-history]').innerHTML = renderHistory(getProject(), metadata);
   };
-  const changed = () => { if (working) return; try { refresh(save()); message.textContent = reviewInvalidated ? '원고·표지·등록 자료가 바뀌어 직접 확인 항목을 해제했습니다. 현재 내용으로 다시 검토해 주세요.' : '출판 정보를 저장했습니다.'; } catch (error) { message.textContent = error.message; onNotify(error.message, true); } };
+  const changed = async () => {
+    if (working || disposed) return;
+    const version = ++changeVersion;
+    try {
+      const metadata = capture(), invalidated = reviewInvalidated;
+      message.textContent = '출판 정보를 저장하고 있습니다…';
+      await save(metadata);
+      if (disposed || version !== changeVersion || working) return;
+      refresh(metadata);
+      message.textContent = invalidated ? '원고·표지·등록 자료가 바뀌어 직접 확인 항목을 해제했습니다. 현재 내용으로 다시 검토해 주세요.' : '출판 정보를 저장했습니다.';
+    } catch (error) { if (!disposed && version === changeVersion && !working) { message.textContent = error.message; onNotify(error.message, true); } }
+  };
   const clicked = async event => {
     const button = event.target.closest('[data-publication-action]');
-    if (!button || working) return;
+    if (!button || working || disposed) return;
     event.preventDefault();
+    working = true; ++changeVersion;
+    const disabledStates = [...form.elements].map(el => [el, el.disabled]);
+    for (const [el] of disabledStates) el.disabled = true;
     try {
-      const metadata = save(), book = structuredClone(getProject()); book.publication = metadata;
+      const metadata = capture(), invalidated = reviewInvalidated, book = structuredClone(getProject()); book.publication = metadata;
+      message.textContent = '출판 정보의 저장을 확인하고 있습니다…';
+      await save(metadata);
+      if (disposed) return;
+      if (publicationFingerprint(getProject()) !== publicationFingerprint(book, metadata)) throw new Error('저장 중 원고 또는 출판 정보가 변경되었습니다. 다시 실행하세요.');
       refresh(metadata);
-      if (reviewInvalidated) { message.textContent = '원고·표지·등록 자료가 바뀌어 직접 확인 항목을 해제했습니다. 현재 내용으로 다시 검토한 뒤 실행해 주세요.'; return; }
+      if (invalidated) { message.textContent = '원고·표지·등록 자료가 바뀌어 직접 확인 항목을 해제했습니다. 현재 내용으로 다시 검토한 뒤 실행해 주세요.'; return; }
       if (button.dataset.publicationAction === 'check') { message.textContent = '점검을 갱신했습니다. EPUBCheck와 외부 유통 심사는 별도입니다.'; return; }
-      if (button.dataset.publicationAction === 'record') { const recorded = recordPublicationVersion(book, metadata); onSave(recorded); refresh(recorded); message.textContent = '현재 판본의 검수와 직접 확인한 진행 상태를 기록했습니다.'; return; }
+      if (button.dataset.publicationAction === 'record') {
+        const recorded = recordPublicationVersion(book, metadata);
+        await save(recorded);
+        if (disposed) return;
+        if (publicationFingerprint(getProject()) !== publicationFingerprint(book, metadata)) throw new Error('이력 저장 중 원고 또는 출판 정보가 변경되었습니다. 다시 실행하세요.');
+        refresh(recorded); message.textContent = '현재 판본의 검수와 직접 확인한 진행 상태를 기록했습니다.'; return;
+      }
       if (button.dataset.publicationAction === 'guide') { download(publicationGuide(book, metadata), 'folio-publishing-guide.md', 'text/markdown;charset=utf-8'); message.textContent = '출판 절차서를 준비했습니다.'; return; }
-      working = true; message.textContent = '원고와 판권, 검수 자료를 묶고 있습니다…';
-      for (const el of form.elements) el.disabled = true;
+      message.textContent = '원고와 판권, 검수 자료를 묶고 있습니다…';
       if (!preparedCover || preparedCover.fingerprint !== coverFingerprint(book, metadata)) preparedCover = await makeCover(book, metadata, { document: panel.ownerDocument });
       if (disposed) return;
       if (publicationFingerprint(getProject()) !== publicationFingerprint(book, metadata)) throw new Error('표지 생성 중 원고 또는 출판 정보가 변경되었습니다. 다시 실행하세요.');
@@ -104,7 +141,7 @@ export function mountPublicationPanel(container, { getProject, onSave = () => {}
       message.textContent = `${result.files.length}개 파일을 준비했습니다. ZIP의 절차서를 따라 외부 검증과 판매 신청을 진행하세요.`;
       onNotify('출판 준비 ZIP을 만들었습니다.');
     } catch (error) { if (!disposed) { message.textContent = error.message; onNotify(error.message, true); } }
-    finally { working = false; if (!disposed) for (const el of form.elements) el.disabled = false; }
+    finally { working = false; if (!disposed) for (const [el, disabled] of disabledStates) el.disabled = disabled; }
   };
   const submit = event => event.preventDefault();
   form.addEventListener('input', changed); form.addEventListener('change', changed); form.addEventListener('submit', submit); panel.addEventListener('click', clicked);
