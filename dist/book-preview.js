@@ -74,7 +74,7 @@ export function mountBookPreview(host, options = {}) {
   const sections = Array.isArray(options.sections) ? options.sections : [];
   const title = String(options.title || '나의 책');
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  let pages = [], current = 0, spread = 1, destroyed = false, observer, resizeTimer, width = 0;
+  let pages = [], current = 0, spread = 1, destroyed = false, observer, resizeTimer, width = 0, heightBudget = 0, controlsHeight = 0;
   let activeTurn = null;
   const motionPreference = win.matchMedia?.('(prefers-reduced-motion: reduce)');
   let pointerStart = null, refreshing = false, originalPage = Math.max(0, Math.floor(Number(options.page) || 0));
@@ -84,6 +84,20 @@ export function mountBookPreview(host, options = {}) {
   const stage = host.querySelector('[data-book-stage]'), position = host.querySelector('[data-book-position]');
   const select = host.querySelector('[data-book-section]'), progress = host.querySelector('[data-book-progress]');
   const previous = host.querySelector('[data-book-prev]'), next = host.querySelector('[data-book-next]');
+  const availableReaderHeight = () => {
+    const value = Number(options.getAvailableHeight?.(host));
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  };
+  const outerHeight = element => {
+    const style = win.getComputedStyle(element);
+    return element.getBoundingClientRect().height + (parseFloat(style.marginTop) || 0) + (parseFloat(style.marginBottom) || 0);
+  };
+  const controls = [host.querySelector('.folio-book-toolbar'), host.querySelector('.folio-book-navigation'), progress, host.querySelector('.folio-book-hint')];
+  const measureControls = () => {
+    const style = win.getComputedStyle(stage);
+    return controls.reduce((total, element) => total + outerHeight(element), 0)
+      + (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+  };
   const measure = doc.createElement('div'); measure.className = 'folio-book-measure'; measure.setAttribute('aria-hidden', 'true'); measure.inert = true; host.append(measure);
   const pageElement = (page, index, side = '') => {
     const element = doc.createElement('article');
@@ -296,7 +310,12 @@ export function mountBookPreview(host, options = {}) {
     const oldOffset = oldSectionStart >= 0 ? current - oldSectionStart : 0;
     width = host.getBoundingClientRect().width || host.clientWidth || 760;
     spread = width >= 720 ? 2 : 1;
-    const availableHeight = Math.max(300, (win.innerHeight || 900) - 240);
+    heightBudget = availableReaderHeight();
+    controlsHeight = measureControls();
+    // The editor dialog supplies its actual remaining space, including wrapped
+    // toolbars. Standalone books retain their viewport-based sizing. Very short
+    // windows keep a readable minimum page and use the dialog's normal scroll.
+    const availableHeight = heightBudget ? Math.max(180 * Math.SQRT2, heightBudget - controlsHeight) : Math.max(300, (win.innerHeight || 900) - 240);
     const pageWidth = Math.max(180, Math.min(430, Math.floor((width - 20) / spread), Math.floor(availableHeight / Math.SQRT2)));
     host.style.setProperty('--book-page-width', `${pageWidth}px`);
     host.style.setProperty('--book-page-height', `${Math.round(pageWidth * Math.SQRT2)}px`);
@@ -414,7 +433,13 @@ export function mountBookPreview(host, options = {}) {
   host.addEventListener('click', click); host.addEventListener('change', change); host.addEventListener('keydown', keydown);
   stage.addEventListener('pointerdown', pointerdown); stage.addEventListener('pointerup', pointerup); stage.addEventListener('pointercancel', pointercancel);
   paginate();
-  if (typeof win.ResizeObserver === 'function') { observer = new win.ResizeObserver(() => { if (Math.abs((host.getBoundingClientRect().width || host.clientWidth || 760) - width) > 2) refresh(); }); observer.observe(host); }
+  if (typeof win.ResizeObserver === 'function') {
+    observer = new win.ResizeObserver(() => {
+      if (Math.abs((host.getBoundingClientRect().width || host.clientWidth || 760) - width) > 2 || Math.abs(availableReaderHeight() - heightBudget) > 2 || (heightBudget && Math.abs(measureControls() - controlsHeight) > 2)) refresh();
+    });
+    observer.observe(host);
+    for (const target of [...controls, ...(options.resizeTargets || [])]) if (target?.ownerDocument === doc && target !== host) observer.observe(target);
+  }
   win.addEventListener('resize', refresh);
   // Decode every image before final pagination; hidden chapters count as well.
   const sources = [...new Set(sections.flatMap(section => { const template = doc.createElement('template'); template.innerHTML = String(section.html || ''); return [...template.content.querySelectorAll('img')].map(img => img.getAttribute('src')).filter(Boolean); }))];

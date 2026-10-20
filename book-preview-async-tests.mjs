@@ -60,3 +60,33 @@ test('invalidated book cannot persist a delayed decode or finish its transition'
  const s=await setup(t);s.paste();await until(()=>s.decodes.length===1);s.click('[data-book-mode="preview"]');s.invalidate();s.decodes[0].onload();await tick();await tick();
  assert.equal(s.saves.length,0);assert.equal(s.book.chapters[0].figures,undefined);assert.equal(s.control.getState().mode,'edit');
 });
+
+test('bookmark selected during preview font loading survives final pagination',async t=>{
+ const s=await setup(t);let release;
+ Object.defineProperty(s.win.document,'fonts',{configurable:true,value:{ready:new Promise(resolve=>release=resolve)}});
+ s.click('[data-book-mode="preview"]');
+ await until(()=>Boolean(s.$('.folio-book-reader [data-book-section]')));
+ const bookmark=s.$('.folio-book-reader [data-book-section]');
+ assert.match(bookmark.selectedOptions[0].textContent,/첫 장/,'initial chapter is chosen before readiness');
+ const third=[...bookmark.options].find(option=>/셋째 장/.test(option.textContent));
+ bookmark.value=third.value;bookmark.dispatchEvent(new s.win.Event('change',{bubbles:true}));
+ assert.equal(s.control.getState().chapterId,'third');
+ release();await tick();await tick();
+ assert.equal(s.control.getState().chapterId,'third','late readiness cannot restore the old chapter');
+ assert.equal(s.$('.book-workspace-toolbar [data-book-section]').value,'third');
+ assert.equal(bookmark.value,third.value);
+ s.click('[data-book-mode="edit"]');await until(()=>Boolean(s.$('[data-book-editor-content]')));
+ assert.equal(s.$('[data-book-editor-title]').value,'셋째 장');
+});
+
+test('a page turn made before readiness is not replaced by initial chapter selection',async t=>{
+ const s=await setup(t);let release;
+ Object.defineProperty(s.win.document,'fonts',{configurable:true,value:{ready:new Promise(resolve=>release=resolve)}});
+ s.click('[data-book-mode="preview"]');await until(()=>Boolean(s.$('[data-book-next]')));
+ s.click('[data-book-next]');
+ const before=s.$('[data-book-position]').textContent, chapter=s.control.getState().chapterId;
+ assert.notEqual(chapter,'first');
+ release();await tick();await tick();
+ assert.equal(s.$('[data-book-position]').textContent,before);
+ assert.equal(s.control.getState().chapterId,chapter);
+});

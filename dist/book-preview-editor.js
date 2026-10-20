@@ -16,6 +16,23 @@ export function mountBookPreviewEditor(host, options) {
   selectedId = current()?.id;
   host.innerHTML = '<div class="book-workspace-toolbar"><div role="group" aria-label="책 보기 모드"><button type="button" class="button small secondary" data-book-mode="preview">프리뷰</button><button type="button" class="button small secondary" data-book-mode="edit">에디터</button></div><label>장 선택 <select data-book-section aria-label="책에서 편집할 장"></select></label><button type="button" class="button small secondary" data-book-save>변경 저장</button><span class="help" data-book-status role="status"></span></div><div data-book-content></div>';
   const content = host.querySelector('[data-book-content]'), select = host.querySelector('[data-book-section]'), status = host.querySelector('[data-book-status]');
+  const modal = host.closest('.book-preview-modal'), win = host.ownerDocument.defaultView;
+  const previewLayout = modal ? {
+    getAvailableHeight: readerHost => {
+      const style = win.getComputedStyle(modal), bounds = modal.getBoundingClientRect(), readerBounds = readerHost.getBoundingClientRect();
+      if (!bounds.height || !readerBounds.width) return 0;
+      const viewportHeight = win.innerHeight || 900;
+      const maxHeight = /(?:d|s|l)?vh$/.test(style.maxHeight) ? parseFloat(style.maxHeight) * viewportHeight / 100 : parseFloat(style.maxHeight);
+      const backdropStyle = win.getComputedStyle(modal.parentElement);
+      const viewportLimit = viewportHeight - (parseFloat(backdropStyle.paddingTop) || 0) - (parseFloat(backdropStyle.paddingBottom) || 0);
+      const limit = Math.min(Number.isFinite(maxHeight) ? maxHeight : viewportLimit, viewportLimit);
+      // Rect differences include header and editor toolbar wrapping. Add scroll
+      // offset back so navigating an already-scrolled dialog never grows pages.
+      const beforeReader = readerBounds.top - bounds.top + modal.scrollTop;
+      return Math.max(1, limit - beforeReader - (parseFloat(style.paddingBottom) || 0) - (parseFloat(style.borderBottomWidth) || 0));
+    },
+    resizeTargets: [host.querySelector('.book-workspace-toolbar'), modal.querySelector('.modal-header')].filter(Boolean),
+  } : {};
   const updateSelect = () => { select.innerHTML = chapters().map(c => '<option value="'+esc(c.id)+'">'+esc(c.title)+'</option>').join(''); select.value = selectedId || ''; };
   const valid = () => !disposed && (!options.isCurrent || options.isCurrent());
   const failure = error => { if(disposed)return; status.textContent = error.message || '변경 내용을 확인해 주세요.'; options.onError?.(error); };
@@ -52,11 +69,15 @@ export function mountBookPreviewEditor(host, options) {
       const prepared = await prepareBookPreview(structuredClone(book));
       if(!valid()||generation!==token)return;
       const requestedChapterId=selectedId;
-      reader=mountBookPreview(content.firstElementChild,{...prepared,title:book.title,onPageChange:state=>{const id=prepared.sections[state.section]?.chapterId;if(id&&sourceChapter(id)){selectedId=id;select.value=id;}}});
-      const mounted=reader; await mounted.ready;
-      if(!valid()||generation!==token||reader!==mounted)return;
-      if(followSelection){const section=prepared.sections.find(s=>s.chapterId===requestedChapterId);if(section)mounted.goToSection(section.id);}
       status.textContent='책장을 넘기거나 에디터에서 수정하세요.';
+      reader=mountBookPreview(content.firstElementChild,{...prepared,...previewLayout,title:book.title,onPageChange:state=>{const id=prepared.sections[state.section]?.chapterId;if(id&&sourceChapter(id)){selectedId=id;select.value=id;}}});
+      const mounted=reader;
+      // Choose the initial chapter before yielding to image/font readiness. The
+      // reader preserves its current section when it repaginates, so a bookmark
+      // selected while assets load must never be replaced by this initial choice.
+      if(followSelection){const section=prepared.sections.find(s=>s.chapterId===requestedChapterId);if(section)mounted.goToSection(section.id);}
+      await mounted.ready;
+      if(!valid()||generation!==token||reader!==mounted)return;
     }catch(error){if(generation===token)failure(error);}
   }
   async function click(event){const button=event.target.closest('button');if(!button||!host.contains(button))return;try{if(button.dataset.bookMode)await show(button.dataset.bookMode);else if(button.hasAttribute('data-book-save'))await save();}catch(error){failure(error);}}
