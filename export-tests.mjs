@@ -374,3 +374,22 @@ print(json.dumps(codes,ensure_ascii=False))
   assert.equal((html.match(/<pre><code>/g) || []).length, 3);
   assert.ok(html.includes('&lt;script&gt;문자일 뿐입니다&lt;/script&gt;'));
 });
+
+
+test('generated cover wraps Korean title at word boundaries', async () => {
+  const entries = zipEntries(await buildEpub(fixture({ title: '한국어 출판 조판 검증' })));
+  const svg = new TextDecoder().decode(entries.get('OEBPS/images/cover.svg'));
+  const lines = [...svg.matchAll(/<text[^>]*font-weight="500">([^<]*)<\/text>/g)].map(match => match[1]);
+  assert.deepEqual(lines, ['한국어 출판 조판', '검증']);
+});
+
+test('generated cover preserves complete graphemes when a long token must wrap', async () => {
+  const title = '가나다라마바사아자차카👨‍👩‍👧‍👦🇰🇷é'.repeat(3);
+  const entries = zipEntries(await buildEpub(fixture({ title })));
+  const svg = new TextDecoder().decode(entries.get('OEBPS/images/cover.svg'));
+  const lines = [...svg.matchAll(/<text[^>]*font-weight="500">([^<]*)<\/text>/g)].map(match => match[1]);
+  assert.equal(lines.join(''), title);
+  const boundaries = new Set([...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(title)].map(part => part.index));
+  let offset = 0;
+  for (const line of lines) { assert.ok(boundaries.has(offset), 'line starts on a complete grapheme'); offset += line.length; }
+});

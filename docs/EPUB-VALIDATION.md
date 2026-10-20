@@ -41,3 +41,5 @@ EPUBCheck는 파일 형식 검사이며 리더기 사용성이나 이미지 설�
 ## 전문 조판 연계
 
 출판 패키지의 정적 HTML은 Vivliostyle에 전달할 수 있다. 원고 내용과 로컬 이미지가 내장된 HTML을 입력으로 사용하고, 판형·여백·출력 PDF는 패키지의 구성 파일과 안내에 따른다. 도구 설치 및 렌더링은 사용자 컴퓨터에서 실행되며, 최종 PDF의 글꼴 포함·재단·인쇄소 규격은 별도 확인한다. [Vivliostyle 구성 파일 문서](https://docs.vivliostyle.org/en/cli/using-config-file/)
+
+대표 원고를 Vivliostyle CLI 11.4.0으로 실제 조판해 A5 PDF 14쪽을 확인했다. 한국어·긴 표·그림·코드의 68개 표식과 페이지 경계 검사를 통과했다. 재현 스크립트, 환경 의존성과 남은 Poppler 경고는 [전문 조판 검증 보고서](TYPESETTING-VALIDATION.md)에 기록했다. 이는 모든 원고·인쇄소 규격의 인증을 뜻하지 않는다.

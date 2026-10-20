@@ -563,16 +563,31 @@ async function webpToPng(asset) {
 
 function wrapCoverText(value, width, maximum = 8) {
   const lines = [];
-  let line = '', weight = 0;
-  for (const character of Array.from(clean(value))) {
-    const next = /[\u0000-\u007f]/.test(character) ? 0.55 : 1;
-    if (character === '\n' || (weight + next > width && line)) {
-      lines.push(line.trim()); line = ''; weight = 0;
+  const segments = text => typeof Intl.Segmenter === 'function'
+    ? [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)].map(part => part.segment)
+    : Array.from(text);
+  const measure = character => /^[\u0000-\u007f]+$/.test(character) ? character.length * 0.55 : 1;
+  const paragraphs = clean(value).split('\n');
+  for (const [index, paragraph] of paragraphs.entries()) {
+    let line = '', weight = 0, spacing = '';
+    for (const token of paragraph.match(/\s+|\S+/gu) || []) {
+      if (/^\s+$/u.test(token)) { spacing += token; continue; }
+      const characters = segments(token), tokenWidth = characters.reduce((sum, character) => sum + measure(character), 0);
+      const gap = line ? spacing : '', gapWidth = segments(gap).reduce((sum, character) => sum + measure(character), 0);
+      // Move a whole word to the next line before falling back to a split for
+      // a token that is wider than the cover. Never split an emoji cluster.
+      if (line && weight + gapWidth + tokenWidth > width) { lines.push(line.trim()); line = ''; weight = 0; }
+      if (line) { line += gap; weight += gapWidth; }
+      spacing = '';
+      for (const character of characters) {
+        const next = measure(character);
+        if (line && weight + next > width) { lines.push(line.trim()); line = ''; weight = 0; }
+        line += character; weight += next;
+      }
     }
-    if (character !== '\n') { line += character; weight += next; }
+    if (line || index < paragraphs.length - 1) lines.push(line.trim());
   }
-  if (line) lines.push(line.trim());
-  if (lines.length > maximum) return [...lines.slice(0, maximum - 1), `${Array.from(lines[maximum - 1]).slice(0, -1).join('')}…`];
+  if (lines.length > maximum) return [...lines.slice(0, maximum - 1), `${segments(lines[maximum - 1]).slice(0, -1).join('')}…`];
   return lines;
 }
 

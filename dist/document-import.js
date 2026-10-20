@@ -115,11 +115,69 @@ function relationships(context,owner){
   result.set(id,{path:resolvePath(owner,target),type});
  }return result;
 }
+/** Preserve Word's displayed number labels; do not let Markdown renumber them.
+ * Word numbering semantics: Microsoft Open XML LevelRestart / StartOverrideNumberingValue.
+ * https://learn.microsoft.com/dotnet/api/documentformat.openxml.wordprocessing.levelrestart
+ */
+function docxNumbering(context,styles){
+ const definition=xml(context,'word/numbering.xml',false),abstracts=new Map(),instances=new Map(),styleMap=new Map(),resolved=new Map();
+ const child=(node,name)=>elements(node).find(n=>local(n)===name),value=(node,name)=>attr(child(node,name),'val');
+ const integer=(raw,max,field,fallback)=>{if(raw==='')return fallback;if(!/^\d+$/.test(raw)||!Number.isSafeInteger(Number(raw))||Number(raw)>max)fail(`DOCX ${field} 값이 지원 범위를 벗어났습니다.`);return Number(raw);};
+ const levelNumber=raw=>integer(raw,8,'목록 단계',0);
+ for(const style of styles?all(styles,'style'):[])styleMap.set(attr(style,'styleId'),style);
+ for(const item of definition?elements(definition.documentElement):[]){
+  const tag=local(item),id=attr(item,tag==='abstractnum'?'abstractNumId':'numId');
+  if(!['abstractnum','num'].includes(tag))continue;
+  const map=tag==='abstractnum'?abstracts:instances;if(!id||map.has(id))fail('DOCX 목록 정의 ID가 없거나 중복되었습니다.');map.set(id,item);
+ }
+ function inherited(styleId){
+  const result={},seen=new Set();let id=styleId;
+  while(id){if(seen.has(id)||seen.size>=32){warning(context,'목록 스타일 상속이 순환하거나 너무 깊어 일부 번호 설정을 가져오지 못했습니다. 원본과 대조해 주세요.');break;}seen.add(id);const style=styleMap.get(id);if(!style)break;
+   const num=child(child(style,'ppr'),'numpr');for(const key of ['numid','ilvl'])if(result[key]===undefined&&child(num,key))result[key]=value(num,key);id=value(style,'basedon');
+  }return result;
+ }
+ function level(node,index){
+  const textNode=child(node,'lvltext'),format=value(node,'numfmt')||'decimal';
+  const text=['1','true','on'].includes(attr(textNode,'null'))?'':attr(textNode,'val');
+  if(text.length>200)fail('DOCX 목록 표시 형식은 200자까지 지원합니다. 원본 번호 설정을 확인해 주세요.');
+  const rawRestart=value(node,'lvlrestart'),restart=integer(rawRestart,1000000000,'목록 재시작',index);
+  return {format,text,start:integer(value(node,'start'),1000000000,'목록 시작 번호',0),restart:restart>index?index:restart,legal:Boolean(child(node,'islgl'))&&!['0','false','off'].includes(value(node,'islgl'))};
+ }
+ function instance(id){
+  if(resolved.has(id))return resolved.get(id);const node=instances.get(id),base=node&&abstracts.get(value(node,'abstractnumid'));if(!base)return null;
+  if(child(base,'numstylelink')){warning(context,'연결된 번호 전용 스타일은 완전히 지원하지 않습니다. 해당 목록을 원본과 대조해 주세요.');}
+  const levels=new Map();for(const item of elements(base).filter(n=>local(n)==='lvl')){const index=levelNumber(attr(item,'ilvl'));if(levels.has(index))fail('DOCX 목록 단계가 중복되었습니다.');levels.set(index,level(item,index));}
+  const overrides=new Set();for(const item of elements(node).filter(n=>local(n)==='lvloverride')){const index=levelNumber(attr(item,'ilvl'));if(overrides.has(index))fail('DOCX 목록 단계 덮어쓰기 설정이 중복되었습니다.');overrides.add(index);const replacement=child(item,'lvl');if(replacement)levels.set(index,level(replacement,index));const start=child(item,'startoverride');if(start){if(!levels.has(index))levels.set(index,level(null,index));levels.get(index).start=integer(attr(start,'val'),1000000000,'목록 시작 번호',0);}}
+  const result={levels,counters:new Map()};resolved.set(id,result);return result;
+ }
+ function formatted(number,format){
+  if(format==='decimal')return String(number);if(format==='decimalZero')return String(number).padStart(2,'0');
+  if(['upperLetter','lowerLetter'].includes(format)&&number>0){let result='';for(let n=number;n>0;n=Math.floor((n-1)/26))result=String.fromCharCode(65+(n-1)%26)+result;return format==='lowerLetter'?result.toLowerCase():result;}
+  if(['upperRoman','lowerRoman'].includes(format)&&number>0&&number<4000){let result='',n=number;for(const [amount,symbol] of [[1000,'M'],[900,'CM'],[500,'D'],[400,'CD'],[100,'C'],[90,'XC'],[50,'L'],[40,'XL'],[10,'X'],[9,'IX'],[5,'V'],[4,'IV'],[1,'I']])while(n>=amount){result+=symbol;n-=amount;}return format==='lowerRoman'?result.toLowerCase():result;}
+  warning(context,'지원하지 않는 번호 문자 형식 또는 로마 숫자 범위는 숫자 값으로 표시했습니다. 한글 번호·사용자 정의 번호는 원본과 대조해 주세요.');return String(number);
+ }
+ return (properties,styleId,content)=>{
+  const setting=inherited(styleId),direct=child(properties,'numpr');for(const key of ['numid','ilvl'])if(child(direct,key))setting[key]=value(direct,key);
+  if(setting.numid==='0'||(!direct&&setting.numid===undefined))return content;
+  const index=levelNumber(setting.ilvl??''),data=instance(setting.numid),current=data?.levels.get(index);
+  if(!current){warning(context,'목록 번호 정의가 없거나 연결되지 않아 글머리표로 표시했습니다. 번호와 단계를 원본과 대조해 주세요.');return '- '+content;}
+  for(const [lower,config] of data.levels)if(lower>index&&config.restart===index+1)data.counters.delete(lower);
+  data.counters.set(index,(data.counters.get(index)??current.start-1)+1);
+  if(current.format==='none')return content;
+  if(current.format==='bullet'){if(index>0||!/^[•●○▪▫◦·\uF0B7]$/.test(current.text))warning(context,'글머리표 목록의 하위 단계·기호 글꼴은 일반 글머리표로 바뀝니다. 원본과 대조해 주세요.');return '- '+content;}
+  let missing=false;
+  const label=current.text.replace(/%([1-9])/g,(_,slot)=>{const target=Number(slot)-1,config=data.levels.get(target);if(target>index)return '';if(!config){missing=true;return `[${slot}]`;}return formatted(data.counters.get(target)??config.start,current.legal?'decimal':config.format);});
+  if(missing)warning(context,'목록 표시가 없는 단계의 번호를 참조합니다. 표시된 대괄호 번호를 원본과 대조해 주세요.');
+  warning(context,'번호 목록의 표시 번호와 단계를 본문 라벨로 보존했습니다. 목록 전용 접근성 구조·정밀 들여쓰기·글꼴은 원본과 대조해 주세요.');
+  const literal=label.replace(/[!-/:-@\[-`{-~]/g,'\\$&');
+  return '\u2003'.repeat(index)+literal+(label?' ':'')+content;
+ };
+}
 function importDocx(context){
  if([...context.files.keys()].some(p=>/vbaProject|activeX|embeddings\//i.test(p)))fail('매크로·ActiveX·삽입 실행 객체가 있는 문서는 가져올 수 없습니다.');
  const doc=xml(context,'word/document.xml'),rels=relationships(context,'word/document.xml'),core=xml(context,'docProps/core.xml',false),styles=xml(context,'word/styles.xml',false),styleLevels=new Map();
  for(const style of styles?all(styles,'style'):[]){const id=attr(style,'styleId'),outline=first(style,'outlineLvl'),name=attr(first(style,'name'),'val');if(outline)styleLevels.set(id,Number(attr(outline,'val'))+1);else if(/^(?:heading|제목)\s*([1-6])$/i.test(name))styleLevels.set(id,Number(name.match(/([1-6])$/)[1]));}
- const book=project(context,plain(first(core||doc,'title')),plain(first(core||doc,'creator')),plain(first(core||doc,'language'))||'ko',plain(first(core||doc,'description')));
+ const book=project(context,plain(first(core||doc,'title')),plain(first(core||doc,'creator')),plain(first(core||doc,'language'))||'ko',plain(first(core||doc,'description'))),listParagraph=docxNumbering(context,styles);
  const notes=new Map();for(const [file,tag] of [['word/footnotes.xml','footnote'],['word/endnotes.xml','endnote']]){const noteDoc=xml(context,file,false);if(noteDoc)for(const note of all(noteDoc,tag)){const id=attr(note,'id');if(Number(id)>=0&&plain(note))notes.set(`${tag}:${id}`,plain(note));}}
  let title=book.title,lines=[],figures=[],references=[];
  const flush=()=>{if(lines.join('').trim()||figures.length)addChapter(context,book,title,lines.join('\n\n')+(references.length?'\n\n### 주석\n\n'+references.map(([label,value])=>`[${label}] ${markdown(value)}`).join('\n\n'):''),figures);lines=[];figures=[];references=[];};
@@ -132,7 +190,7 @@ function importDocx(context){
  }
  function block(node){const tag=local(node);if(tag==='p'){const properties=elements(node).find(n=>local(n)==='ppr'),style=attr(properties&&first(properties,'pstyle'),'val'),outline=properties&&first(properties,'outlinelvl'),level=outline?Number(attr(outline,'val'))+1:styleLevels.get(style)||Number(style.match(/^(?:heading|제목)\s*([1-6])$/i)?.[1]||0),value=inline(node).trim();if(!value)return;
    if(level===1){flush();title=plain(node)||`제${book.chapters.length+1}장`;return;}
-   const numbered=properties&&first(properties,'numpr');if(numbered)warning(context,'목록은 글머리표로 통일했습니다. 번호 재시작·다단계 번호는 원본과 대조해 주세요.');lines.push(level>1?'#'.repeat(Math.min(6,level))+' '+value:numbered?'- '+value:value);
+   lines.push(level>1?'#'.repeat(Math.min(6,level))+' '+value:listParagraph(properties,style,value));
   }else if(tag==='tbl'){const rows=elements(node).filter(n=>local(n)==='tr').map(row=>elements(row).filter(n=>local(n)==='tc').map(cell=>elements(cell).map(inline).join(' ').replace(/\n/g,' ').trim()));if(rows.length){const width=Math.max(...rows.map(r=>r.length));lines.push(rows.map((r,i)=>'| '+Array.from({length:width},(_,j)=>r[j]||'').join(' | ')+' |'+(i===0?'\n| '+Array(width).fill('---').join(' | ')+' |':'')).join('\n'));warning(context,'표는 첫 행을 머리글로 사용하는 Markdown 표로 바꿨습니다. 셀 병합·테두리·너비는 유지되지 않습니다.');}}
   else if(tag==='altchunk')fail('외부/삽입 HTML 본문(altChunk)은 지원하지 않습니다.');else if(!['sectpr'].includes(tag))elements(node).forEach(block);
  }

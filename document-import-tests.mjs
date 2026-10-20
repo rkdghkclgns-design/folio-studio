@@ -14,6 +14,9 @@ const file=(bytes,name='book.docx')=>({name,size:bytes.length,arrayBuffer:async(
 const word=body=>`<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><w:body>${body}</w:body></w:document>`;
 const p=text=>`<w:p><w:r><w:t>${text}</w:t></w:r></w:p>`;
 const heading=text=>`<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>${text}</w:t></w:r></w:p>`;
+const numbered=(text,numId=1,level=0)=>`<w:p><w:pPr><w:numPr><w:ilvl w:val="${level}"/><w:numId w:val="${numId}"/></w:numPr></w:pPr><w:r><w:t>${text}</w:t></w:r></w:p>`;
+const numbering=(levels,instances='<w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>')=>`<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:abstractNum w:abstractNumId="0">${levels}</w:abstractNum>${instances}</w:numbering>`;
+const numberLevel=(level,format,text,extra='',start=1)=>`<w:lvl w:ilvl="${level}"><w:start w:val="${start}"/><w:numFmt w:val="${format}"/><w:lvlText w:val="${text}"/>${extra}</w:lvl>`;
 const docx=(body,extra={})=>({'word/document.xml':word(body),'docProps/core.xml':'<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>가져온 책</dc:title><dc:creator>홍길동</dc:creator></cp:coreProperties>',...extra});
 const xhtml=body=>`<html xmlns="http://www.w3.org/1999/xhtml"><head><title>장</title></head><body>${body}</body></html>`;
 const epub=(extra={},spine='<itemref idref="two"/><itemref idref="one"/>')=>({mimetype:'application/epub+zip','META-INF/container.xml':'<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="EPUB/package.opf" media-type="application/oebps-package+xml"/></rootfiles></container>','EPUB/package.opf':`<package xmlns="http://www.idpf.org/2007/opf" version="3.0"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>EPUB 제목</dc:title><dc:creator>작가</dc:creator><dc:language>ko</dc:language></metadata><manifest><item id="one" href="one.xhtml" media-type="application/xhtml+xml"/><item id="two" href="two.xhtml" media-type="application/xhtml+xml"/><item id="cover" href="pic.png" media-type="image/png" properties="cover-image"/></manifest><spine>${spine}</spine></package>`,'EPUB/one.xhtml':xhtml('<h1>먼저 작성한 장</h1><p>첫 파일 본문</p>'),'EPUB/two.xhtml':xhtml('<h1>읽기 첫 장</h1><p><strong>강조</strong> 내용 <a href="#note">[1]</a></p><img src="pic.png" alt="작은 점"/><aside id="note"><p>[1] 각주 본문</p></aside>'),'EPUB/pic.png':png,...extra});
@@ -29,6 +32,44 @@ test('DOCX images become validated portable folio assets and notes become chapte
 });
 test('DOCX lists and tables convert with visible limitation warnings',async()=>{
  const result=await importDocument(file(files(docx('<w:p><w:pPr><w:numPr><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>목록</w:t></w:r></w:p><w:tbl><w:tr><w:tc>'+p('제목')+'</w:tc><w:tc>'+p('값')+'</w:tc></w:tr><w:tr><w:tc>'+p('A')+'</w:tc><w:tc>'+p('B')+'</w:tc></w:tr></w:tbl>'))));assert.match(result.project.chapters[0].content,/- 목록/);assert.match(result.project.chapters[0].content,/\| 제목 \| 값 \|/);assert.ok(result.warnings.some(s=>s.includes('셀 병합')));
+});
+test('DOCX decimal and multilevel numbering survives starts, restarts and rendered output',async()=>{
+ const definitions=numbering(numberLevel(0,'decimal','%1.','',3)+numberLevel(1,'decimal','%1.%2'),'<w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num><w:num w:numId="2"><w:abstractNumId w:val="0"/><w:lvlOverride w:ilvl="0"><w:startOverride w:val="8"/></w:lvlOverride></w:num>');
+ const bytes=files(docx(numbered('준비')+numbered('첫 세부',1,1)+numbered('다음 세부',1,1)+numbered('실행')+numbered('재시작한 세부',1,1)+numbered('새 목록',2)+numbered('기존 목록 계속'),{'word/numbering.xml':definitions}));
+ const result=await importDocument(file(bytes)),content=result.project.chapters[0].content;
+ const rendered=new window.DOMParser().parseFromString(renderMarkdown(content),'text/html');
+ assert.deepEqual(Array.from(rendered.querySelectorAll('p')).map(p=>p.textContent),['3. 준비','\u20033.1 첫 세부','\u20033.2 다음 세부','4. 실행','\u20034.1 재시작한 세부','8. 새 목록','5. 기존 목록 계속']);
+ assert.doesNotMatch(rendered.body.textContent,/\\/,'number-label escapes must not be visible to readers');
+ assert.ok(result.warnings.some(s=>s.includes('번호')&&s.includes('접근성')));
+ assert.deepEqual(new Uint8Array(await documentSourceBlob(result.source).arrayBuffer()),bytes);
+ const epubBytes=await buildEpub(result.project);const {unzipSync}=await import('./dist/vendor/fflate-0.8.2.js');const archive=unzipSync(epubBytes);const bodyText=Object.entries(archive).filter(([name])=>/chapter.*\.xhtml$/.test(name)).map(([,data])=>new TextDecoder().decode(data)).join('\n');
+ assert.match(bodyText,/3\.1 첫 세부/);assert.match(bodyText,/8\. 새 목록/);assert.doesNotMatch(bodyText,/3\\\./);
+});
+test('DOCX letter and Roman labels respect never-restart, legal numbering and level overrides',async()=>{
+ const definitions=numbering(numberLevel(0,'upperRoman','%1.','',2)+numberLevel(1,'lowerLetter','%1.%2)','<w:lvlRestart w:val="0"/>')+numberLevel(2,'lowerRoman','%1.%2.%3','<w:isLgl/>'),'<w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num><w:num w:numId="2"><w:abstractNumId w:val="0"/><w:lvlOverride w:ilvl="0">'+numberLevel(0,'upperLetter','%1)','',2)+'<w:startOverride w:val="4"/></w:lvlOverride></w:num>');
+ const result=await importDocument(file(files(docx(numbered('상위')+numbered('첫 하위',1,1)+numbered('법률식',1,2)+numbered('다음 상위')+numbered('계속 하위',1,1)+numbered('새 표시',2),{'word/numbering.xml':definitions}))));
+ const rendered=new window.DOMParser().parseFromString(renderMarkdown(result.project.chapters[0].content),'text/html');
+ assert.deepEqual(Array.from(rendered.querySelectorAll('p')).map(p=>p.textContent),['II. 상위','\u2003II.a) 첫 하위','\u2003\u20032.1.1 법률식','III. 다음 상위','\u2003III.b) 계속 하위','D) 새 표시']);
+});
+test('DOCX style-inherited numbering, explicit cancellation, ordinary paragraphs and bullets remain distinct',async()=>{
+ const styles='<w:styles xmlns:w="urn:w"><w:style w:styleId="BaseList"><w:pPr><w:numPr><w:numId w:val="1"/></w:numPr></w:pPr></w:style><w:style w:styleId="ChildList"><w:basedOn w:val="BaseList"/><w:pPr><w:numPr><w:ilvl w:val="1"/></w:numPr></w:pPr></w:style></w:styles>';
+ const styled='<w:p><w:pPr><w:pStyle w:val="ChildList"/></w:pPr><w:r><w:t>상속한 목록</w:t></w:r></w:p>',cancelled='<w:p><w:pPr><w:pStyle w:val="BaseList"/><w:numPr><w:numId w:val="0"/></w:numPr></w:pPr><w:r><w:t>번호 해제</w:t></w:r></w:p>';
+ const definitions=numbering(numberLevel(0,'decimal','%1.')+numberLevel(1,'decimal','%1.%2'));
+ const result=await importDocument(file(files(docx(numbered('시작')+p('목록 사이 설명')+styled+cancelled+numbered('계속'),{'word/numbering.xml':definitions,'word/styles.xml':styles}))));
+ const rendered=new window.DOMParser().parseFromString(renderMarkdown(result.project.chapters[0].content),'text/html');
+ assert.deepEqual(Array.from(rendered.querySelectorAll('p')).map(p=>p.textContent),['1. 시작','목록 사이 설명','\u20031.1 상속한 목록','번호 해제','2. 계속']);
+ const bullet=await importDocument(file(files(docx(numbered('기존 글머리표'),{'word/numbering.xml':numbering(numberLevel(0,'bullet','•'))}))));assert.equal(bullet.project.chapters[0].content,'- 기존 글머리표');assert.match(renderMarkdown(bullet.project.chapters[0].content),/<ul><li>기존 글머리표<\/li><\/ul>/);
+});
+test('DOCX numbering handles omitted starts and unsupported formats without unsafe markup or invented formats',async()=>{
+ const noStart='<w:lvl w:ilvl="0"><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/></w:lvl>';
+ const zero=await importDocument(file(files(docx(numbered('영에서 시작')+numbered('그 다음'),{'word/numbering.xml':numbering(noStart)}))));assert.equal(renderMarkdown(zero.project.chapters[0].content),'<p>0. 영에서 시작</p>\n<p>1. 그 다음</p>');
+ const untrusted=numbering(numberLevel(0,'koreanDigital','&lt;script&gt;**%1**&lt;/script&gt;','',3));
+ const result=await importDocument(file(files(docx(numbered('번호 본문'),{'word/numbering.xml':untrusted}))));
+ const rendered=new window.DOMParser().parseFromString(renderMarkdown(result.project.chapters[0].content),'text/html');assert.equal(rendered.querySelectorAll('script,strong').length,0);assert.equal(rendered.body.textContent,'<script>**3**</script> 번호 본문');assert.ok(result.warnings.some(s=>s.includes('지원하지 않는 번호')));
+ const largeRoman=await importDocument(file(files(docx(numbered('큰 번호'),{'word/numbering.xml':numbering(numberLevel(0,'upperRoman','%1.','',1000000000))}))));assert.match(renderMarkdown(largeRoman.project.chapters[0].content),/1000000000\. 큰 번호/);assert.ok(largeRoman.warnings.some(s=>s.includes('로마 숫자')));
+});
+test('DOCX invalid numbering metadata remains bounded and rejects DTDs through the existing XML gate',async()=>{
+ for(const definitions of [numbering(numberLevel(9,'decimal','%1.')),numbering(numberLevel(0,'decimal','%1.', '',1000000001)),numbering(numberLevel(0,'decimal','x'.repeat(201))),numbering(numberLevel(0,'decimal','%1.')+numberLevel(0,'decimal','%1.')),'<!DOCTYPE x [<!ENTITY data SYSTEM "file:///private">]><w:numbering xmlns:w="urn:w"/>'])await assert.rejects(()=>importDocument(file(files(docx(numbered('본문'),{'word/numbering.xml':definitions})))));
 });
 test('EPUB uses spine ordering rather than ZIP names and preserves cover, images and notes',async()=>{
  const result=await importDocument(file(files(epub()),'book.epub'));assert.deepEqual(result.project.chapters.map(c=>c.title),['읽기 첫 장','먼저 작성한 장']);assert.match(result.project.chapters[0].content,/각주 본문/);assert.match(result.project.chapters[0].content,/\*\*강조\*\*/);assert.equal(result.project.chapters[0].figures.length,1);assert.ok(result.project.coverImage.src.startsWith('data:image/png'));assert.equal(result.project.language,'ko');assert.equal(result.source.format,'epub');

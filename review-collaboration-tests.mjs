@@ -95,3 +95,81 @@ test('default fields added by project validation cannot turn unchanged remote ch
  incoming.project.chapters[0].content='편집자가 별도로 수정한 첫 장';
  const actualConflict=await planExchangeMerge(p,incoming);assert.deepEqual(actualConflict.conflicts.map(conflict=>conflict.key),['chapter:a']);
 });
+
+const paragraphBook=()=>({...fixture(),chapters:[{id:'a',title:'같이 편집할 장',content:['첫 문단 👩‍👩‍👧‍👦','중간 기준 문단','세 번째 문단','마지막 기준 문단'].join('\n\n')}]});
+const shareParagraphBook=async()=>{const local=paragraphBook(),shared=await createExchange(local,{name:'저자'});local.collaboration=shared.origin;return {local,remote:structuredClone(shared.exchange),origin:shared.origin};};
+
+test('different paragraphs in one chapter merge without copying baseline manuscript text',async()=>{
+ const {local,remote,origin}=await shareParagraphBook();
+ assert.equal(origin.version,1);assert.equal(origin.chapterBases.length,1);assert.equal(origin.chapterBases[0].paragraphs.length,4);
+ assert.ok(!JSON.stringify(origin).includes('첫 문단'));assert.ok(origin.chapterBases[0].paragraphs.every(hash=>/^[a-f0-9]{64}$/.test(hash)));
+ local.chapters[0].content=local.chapters[0].content.replace('첫 문단','저자가 수정한 문단');remote.project.chapters[0].content=remote.project.chapters[0].content.replace('세 번째 문단','편집자가 수정한 문단');
+ const before=JSON.stringify(local),plan=await planExchangeMerge(local,parseExchange(remote,structuredClone));assert.deepEqual(plan.conflicts,[]);
+ const merged=await resolveExchangeMerge(plan);assert.match(merged.chapters[0].content,/저자가 수정한 문단 👩‍👩‍👧‍👦/);assert.match(merged.chapters[0].content,/편집자가 수정한 문단/);assert.equal(JSON.stringify(local),before);
+ assert.equal(merged.chapters[0].content.split('\n\n').length,4);assert.notDeepEqual(merged.collaboration.chapterBases,origin.chapterBases);
+});
+
+test('chapter metadata and an independent paragraph use separate baseline fields',async()=>{
+ const {local,remote}=await shareParagraphBook();local.chapters[0].title='저자의 제목';remote.project.chapters[0].content=remote.project.chapters[0].content.replace('세 번째 문단','편집자 문단');
+ const plan=await planExchangeMerge(local,parseExchange(remote,raw=>({...structuredClone(raw),chapters:raw.chapters.map(chapter=>({...chapter,kind:'',imagePrompt:'',editorialNotes:undefined,image:undefined,figures:undefined}))})));
+ assert.deepEqual(plan.conflicts,[]);const merged=await resolveExchangeMerge(plan);assert.equal(merged.chapters[0].title,'저자의 제목');assert.match(merged.chapters[0].content,/편집자 문단/);
+ remote.project.chapters[0].title='다른 제목';const conflict=await planExchangeMerge(local,parseExchange(remote,structuredClone));assert.deepEqual(conflict.conflicts.map(c=>c.key),['chapter:a']);
+});
+
+for(const [name,change] of [
+ ['same paragraph', (l,r)=>{l.content=l.content.replace('첫 문단','로컬');r.content=r.content.replace('첫 문단','원격');}],
+ ['insertions at the same position', (l,r)=>{l.content='로컬 삽입\n\n'+l.content;r.content='원격 삽입\n\n'+r.content;}],
+ ['delete versus edit', (l,r)=>{l.content=l.content.split('\n\n').slice(1).join('\n\n');r.content=r.content.replace('첫 문단','변경');}],
+ ['moved paragraphs', (l,r)=>{const parts=l.content.split('\n\n');[parts[0],parts[1]]=[parts[1],parts[0]];l.content=parts.join('\n\n');r.content=r.content.replace('세 번째 문단','변경');}],
+ ['ambiguous adjacent replacements', (l,r)=>{l.content=l.content.replace('첫 문단','첫 변경').replace('중간 기준 문단','둘째 변경');r.content=r.content.replace('마지막 기준 문단','마지막 변경');}],
+ ])test(name+' remains an explicit whole-chapter conflict',async()=>{
+ const {local,remote}=await shareParagraphBook();change(local.chapters[0],remote.project.chapters[0]);const plan=await planExchangeMerge(local,parseExchange(remote,structuredClone));assert.deepEqual(plan.conflicts.map(c=>c.key),['chapter:a']);
+ await assert.rejects(resolveExchangeMerge(plan),/모든 충돌/);const result=await resolveExchangeMerge(plan,{'chapter:a':'remote'});assert.equal(result.chapters[0].content,remote.project.chapters[0].content);
+});
+
+test('repeated baseline paragraphs never invent alignment',async()=>{
+ const local=paragraphBook();local.chapters[0].content='반복\n\n반복\n\n끝';const shared=await createExchange(local,{name:'저자'});local.collaboration=shared.origin;local.chapters[0].content='로컬\n\n반복\n\n끝';shared.exchange.project.chapters[0].content='반복\n\n원격\n\n끝';
+ assert.equal((await planExchangeMerge(local,parseExchange(shared.exchange,structuredClone))).conflicts.length,1);
+});
+
+test('fenced code blank lines and CRLF stay exact while separate prose changes merge',async()=>{
+ const local=paragraphBook(),fence=String.fromCharCode(96).repeat(3);local.chapters[0].content=['첫 문단',fence+'js\r\nconst a = 1;\r\n\r\nconst b = 2;\r\n'+fence,'셋째 문단','끝 문단'].join('\r\n\r\n');
+ const shared=await createExchange(local,{name:'저자'});local.collaboration=shared.origin;assert.equal(shared.origin.chapterBases[0].paragraphs.length,4);
+ const source=local.chapters[0].content;local.chapters[0].content=source.replace('첫 문단','첫 수정');shared.exchange.project.chapters[0].content=source.replace('셋째 문단','셋째 수정');
+ const plan=await planExchangeMerge(local,parseExchange(shared.exchange,structuredClone));assert.deepEqual(plan.conflicts,[]);const result=await resolveExchangeMerge(plan);assert.equal(result.chapters[0].content,source.replace('첫 문단','첫 수정').replace('셋째 문단','셋째 수정'));
+});
+
+test('legacy version 1 and mismatched detailed baselines fall back without losing compatibility',async()=>{
+ for(const mode of ['legacy','missing-local','altered-remote']){
+  const {local,remote}=await shareParagraphBook();
+  if(mode==='legacy'){delete local.collaboration.chapterBases;delete remote.origin.chapterBases;delete remote.project.collaboration.chapterBases;}
+  if(mode==='missing-local')delete local.collaboration.chapterBases;
+  if(mode==='altered-remote')remote.origin.chapterBases[0].paragraphs[0]='0'.repeat(64);
+  local.chapters[0].content=local.chapters[0].content.replace('첫 문단','첫 수정');remote.project.chapters[0].content=remote.project.chapters[0].content.replace('세 번째 문단','셋째 수정');
+  const incoming=parseExchange(remote,structuredClone);assert.equal(incoming.origin.version,1);assert.equal((await planExchangeMerge(local,incoming)).conflicts.length,1,mode);
+ }
+});
+
+test('a resolved baseline survives normalized import and re-sharing for the next independent edit',async()=>{
+ const {local,remote}=await shareParagraphBook();local.chapters[0].content=local.chapters[0].content.replace('첫 문단','첫 변경');remote.project.chapters[0].content=remote.project.chapters[0].content.replace('세 번째 문단','셋째 변경');
+ const merged=await resolveExchangeMerge(await planExchangeMerge(local,parseExchange(remote,structuredClone))),shared=await createExchange(merged,{name:'저자'});
+ assert.deepEqual(shared.origin,merged.collaboration);const imported=parseExchange(shared.exchange,raw=>({...structuredClone(raw),chapters:raw.chapters.map(chapter=>({...chapter,figures:chapter.figures||[],kind:chapter.kind||''}))})).project;
+ imported.chapters[0].content=imported.chapters[0].content.replace('마지막 기준 문단','마지막 원격 변경');const returned=await createExchange(imported,{name:'편집자'});
+ assert.deepEqual(returned.origin,shared.origin);merged.chapters[0].content=merged.chapters[0].content.replace('중간 기준 문단','중간 로컬 변경');
+ const plan=await planExchangeMerge(merged,parseExchange(returned.exchange,structuredClone));assert.deepEqual(plan.conflicts,[]);const final=await resolveExchangeMerge(plan);assert.match(final.chapters[0].content,/중간 로컬 변경/);assert.match(final.chapters[0].content,/마지막 원격 변경/);
+});
+
+test('detailed baseline validation rejects hostile shapes and enforces bounded paragraph work',async()=>{
+ const {origin}=await shareParagraphBook();
+ for(const mutate of [d=>{d.chapterBases[0].paragraphs[0]='raw manuscript';},d=>{d.chapterBases.push(d.chapterBases[0]);},d=>{d.chapterBases[0].fields[0][0]='__proto__';},d=>{d.chapterBases[0].fields[0][1]=['0'.repeat(64)];},d=>{d.chapterBases[0].paragraphs=Array(201).fill('0'.repeat(64));},d=>{d.chapterBases[0].id='missing';}]){const invalid=structuredClone(origin);mutate(invalid);assert.throws(()=>validateCollaboration(invalid),/공유/);}
+ const local=paragraphBook();local.chapters[0].content=Array.from({length:201},(_,i)=>'문단 '+i).join('\n\n');const shared=await createExchange(local,{name:'저자'});assert.equal(shared.origin.chapterBases,undefined);local.collaboration=shared.origin;local.chapters[0].content+=' 로컬';shared.exchange.project.chapters[0].content+=' 원격';assert.equal((await planExchangeMerge(local,parseExchange(shared.exchange,structuredClone))).conflicts.length,1);
+ local.collaboration=undefined;local.chapters[0].content='가'.repeat(100001)+'\n\n끝';assert.equal((await createExchange(local,{name:'저자'})).origin.chapterBases,undefined);
+});
+
+for(const [name,content] of [['first and last repeated text','반복\n\n중간\n\n반복'],['whitespace-equivalent repeated text','  반복  \n\n중간\n\n\t반복\t']])test(name+' omits paragraph baselines and requires explicit conflict resolution',async()=>{
+ const local=paragraphBook();local.chapters[0].content=content;const shared=await createExchange(local,{name:'저자'});assert.equal(shared.origin.chapterBases,undefined);
+ local.collaboration=shared.origin;local.chapters[0].content=content.replace('반복','저자 수정');
+ const last=content.lastIndexOf('반복');shared.exchange.project.chapters[0].content=content.slice(0,last)+'편집자 수정'+content.slice(last+'반복'.length);
+ const plan=await planExchangeMerge(local,parseExchange(shared.exchange,structuredClone));assert.deepEqual(plan.conflicts.map(c=>c.key),['chapter:a']);await assert.rejects(resolveExchangeMerge(plan),/모든 충돌/);
+ const resolved=await resolveExchangeMerge(plan,{'chapter:a':'remote'});assert.equal(resolved.chapters[0].content,shared.exchange.project.chapters[0].content);
+});
