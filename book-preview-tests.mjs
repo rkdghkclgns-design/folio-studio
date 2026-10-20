@@ -116,6 +116,41 @@ test('oversized tables retain complete data in a keyboard-accessible scroll regi
   } finally { reader.destroy(); win.happyDOM.abort(); }
 });
 
+test('Korean prose page boundaries preserve whole words even across inline formatting', () => {
+  const { win, host } = setup(280, true);
+  const sentence = '한 쪽씩 읽으며 돌아오기 쉬운 데 있었다. ';
+  const content = sentence.repeat(25), html = `<p>${content.slice(0, 4)}<strong>${content.slice(4, 65)}</strong>${content.slice(65)}</p>`;
+  const reader = mountBookPreview(host, { title: '어절 경계', sections: [{ title: '본문', html }] });
+  try {
+    let restored = '';
+    for (let page = 0; page < reader.getState().pageCount; page++) {
+      reader.goTo(page);
+      const text = host.querySelector('.folio-book-stage .folio-book-page-body').textContent;
+      if (restored && text) assert.ok(/\s$/.test(restored) || /^\s/.test(text), 'page boundary must fall between words');
+      restored += text;
+    }
+    assert.equal(restored, content);
+    assert.match(BOOK_PREVIEW_CSS, /word-break:keep-all;overflow-wrap:anywhere;line-break:strict/);
+  } finally { reader.destroy(); win.happyDOM.abort(); }
+});
+
+test('unbroken URL and composed emoji fallback paginate without loss or broken graphemes', () => {
+  const { win, host } = setup(280, true);
+  const content = 'https://example.org/' + 'longsegment'.repeat(25) + '👩‍👩‍👧‍👦'.repeat(20);
+  const reader = mountBookPreview(host, { sections: [{ title: '긴 주소', html: `<p>${content}</p>` }] });
+  try {
+    let restored = '', offset = 0;
+    const boundaries = new Set([...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(content)].map(part => part.index + part.segment.length));
+    for (let page = 0; page < reader.getState().pageCount; page++) {
+      reader.goTo(page);
+      const text = host.querySelector('.folio-book-stage .folio-book-page-body').textContent;
+      restored += text; offset += text.length;
+      assert.ok(boundaries.has(offset));
+    }
+    assert.equal(restored, content);
+  } finally { reader.destroy(); win.happyDOM.abort(); }
+});
+
 test('standalone reader has one exact CSP-authorized script and no embedded user code or remote dependencies', async () => {
   const html = await exportHTML(fixture({ title: '</script><script>window.pwned=1</script>' }));
   const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)];

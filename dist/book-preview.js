@@ -19,7 +19,7 @@ export const BOOK_PREVIEW_CSS = `
 .folio-book-page.is-left{background:linear-gradient(90deg,var(--book-paper) 92%,#ece9df)}
 .folio-book-page.is-right{background:linear-gradient(90deg,#e9e6dd,var(--book-paper) 9%)}
 .folio-book-page-header{font:10px/1.6 'Pretendard','Malgun Gothic',sans-serif;letter-spacing:.08em;color:#7b806f;padding-bottom:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:none}
-.folio-book-page-body{flex:1;min-height:0;overflow:hidden;display:flow-root}
+.folio-book-page-body{flex:1;min-height:0;overflow:hidden;display:flow-root;word-break:keep-all;overflow-wrap:anywhere;line-break:strict}
 .folio-book-page-body>:first-child{margin-top:0}
 .folio-book-page-body h1,.folio-book-page-body h2,.folio-book-page-body h3,.folio-book-page-body h4{font-family:inherit;font-weight:600;line-height:1.5;letter-spacing:-.025em}
 .folio-book-page-body h1{font-size:1.8em;margin:0 0 1.2em}.folio-book-page-body h2{font-size:1.4em;margin:1.6em 0 .7em}.folio-book-page-body h3{font-size:1.15em;margin:1.4em 0 .6em}
@@ -126,11 +126,25 @@ export function mountBookPreview(host, options = {}) {
     }
     if (best < 12) return null;
     const content = node.textContent;
-    // Prefer complete words; Korean text still has safe character boundaries.
-    const breakAt = content.slice(Math.max(0, best - 40), best).search(/\s+\S*$/);
-    if (breakAt >= 0) best = Math.max(0, best - 40) + breakAt + 1;
-    // Do not cut a surrogate pair.
-    if (best > 0 && /[\uD800-\uDBFF]/.test(content[best - 1])) best--;
+    // Prefer the last complete whitespace-delimited word across the whole
+    // prefix, including Korean eojeol. Do not cut a normal word just to fill
+    // the remaining space below a heading or another paragraph.
+    if (!/\s/.test(content[best - 1]) && !/\s/.test(content[best])) {
+      const before = content.slice(0, best), gap = before.search(/\s+\S*$/);
+      if (gap >= 0) best = gap + before.slice(gap).match(/^\s+/)[0].length;
+      else if (body.childNodes.length) return null;
+    }
+    // An unbroken URL/token longer than one page still needs a fallback.
+    // Preserve entire grapheme clusters (emoji and combining marks included).
+    if (typeof Intl.Segmenter === 'function') {
+      let safe = 0;
+      for (const part of new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(content)) {
+        const end = part.index + part.segment.length;
+        if (end > best) break;
+        safe = end;
+      }
+      best = safe;
+    } else if (best > 0 && /[\uD800-\uDBFF]/.test(content[best - 1])) best--;
     if (best < 1 || best >= length) return null;
     const first = slice(0, best), rest = slice(best, length);
     if (node.tagName === 'OL') {

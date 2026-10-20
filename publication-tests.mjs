@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
-import { normalizePublication, validatePublication, isValidISBN, publicationFingerprint, publicationReadiness, preparePublicationProject, buildPublicationPackage } from './dist/publication.js';
+import { normalizePublication, validatePublication, isValidISBN, publicationFingerprint, publicationReadiness, preparePublicationProject, buildPublicationPackage, publicationFieldMap, recordPublicationVersion } from './dist/publication.js';
 import { renderPublicationPanel, mountPublicationPanel } from './dist/publication-ui.js';
 
 const fixture = extra => ({ id: 'publication-fixture', title: '출판할 책', author: '홍길동', description: '처음 만드는 책', language: 'ko', theme: 'sage', updatedAt: '2026-10-19T00:00:00Z', chapters: [{ id: 'one', title: '첫 장', content: '# 시작\n\n**완성된** 본문입니다.' }], ...extra });
@@ -30,6 +30,7 @@ test('publication metadata rejects malformed backups and validates ISBN checksum
 
 test('readiness distinguishes local checks, human review and unperformed external steps', () => {
   const p = fixture(), m = metadata({ isbn: '9780306406157', rightsConfirmed: true, proofreadConfirmed: true, deviceReviewConfirmed: true, reviewFingerprint: publicationFingerprint(p) });
+  m.reviewFingerprint = publicationFingerprint(p, m);
   let report = publicationReadiness(p, m);
   assert.equal(report.blockers, 0); assert.equal(report.certification, 'not-run'); assert.equal(report.submitted, false);
   assert.equal(check(report, 'rights').state, 'pass'); assert.equal(check(report, 'epubcheck').state, 'external');
@@ -63,7 +64,7 @@ test('publication ZIP packages complete local outputs without claiming submissio
   const p = fixture(), before = JSON.stringify(p), result = await buildPublicationPackage(p, metadata());
   assert.equal(JSON.stringify(p), before);
   const files = unzipStored(result.bytes), text = name => new TextDecoder().decode(files.get(name));
-  assert.equal(files.size, 10); assert.deepEqual([...files.keys()], result.files);
+  assert.equal(files.size, 14); assert.deepEqual([...files.keys()], result.files);
   assert.equal(new TextDecoder().decode(unzipStored(files.get('book.epub')).get('mimetype')), 'application/epub+zip');
   assert.match(text('book.html'), /folio-book-reader/); assert.match(text('book.html'), /<script/);
   assert.ok(!text('print.html').includes('<script')); assert.match(text('manuscript.md'), /판권 정보/);
@@ -79,6 +80,7 @@ test('publication ZIP packages complete local outputs without claiming submissio
 test('open publication panel clears stale review flags before saving or exporting and requires rechecking', async () => {
   const win = new Window({ settings: { disableJavaScriptEvaluation: true, disableCSSFileLoading: true, disableJavaScriptFileLoading: true } });
   const p = fixture(); p.publication = metadata({ rightsConfirmed: true, proofreadConfirmed: true, deviceReviewConfirmed: true, reviewFingerprint: publicationFingerprint(p) });
+  p.publication.reviewFingerprint = publicationFingerprint(p);
   win.document.body.innerHTML = renderPublicationPanel(p);
   const downloads = [], panel = win.document.querySelector('.publication-panel');
   const mounted = mountPublicationPanel(panel, { getProject: () => p, onSave: value => { p.publication = value; }, download: (...args) => downloads.push(args) });
@@ -165,4 +167,48 @@ test('publication actions stop when metadata cannot be saved', async () => {
     assert.equal(notices.length, 2);
     assert.ok(notices.every(item => item[1] === true));
   } finally { mounted.dispose(); await win.happyDOM.close(); }
+});
+
+
+test('channel mapping blocks missing domestic colophon fields without treating all vendor rules as universal', () => {
+  const p=fixture(), m=metadata({publisher:'',publicationDate:'',price:''});
+  const map=publicationFieldMap(p,m);
+  assert.equal(map.schema,'manual-entry-map');
+  for(const key of ['publisher','publicationDate','price']) { assert.equal(map.fields.find(f=>f.key===key).required,true); assert.equal(check(publicationReadiness(p,m),'field-'+key).state,'block'); }
+  const direct=publicationFieldMap(p,{...m,channel:'direct'});
+  assert.equal(direct.fields.find(f=>f.key==='publisher').required,false);
+  assert.equal(publicationFieldMap(p,{...m,channel:'kdp'}).fields.find(f=>f.key==='isbn').required,false);
+});
+test('edition history is snapshot bound, preserves manual states and rejects corrupt imported records', () => {
+  const p=fixture(),m=metadata({edition:'초판 1.0',distributionStatus:'submitted',isbnStatus:'requested',depositStatus:'pending',workflowOwner:'유통 담당',submissionDate:'2026-10-20',recordNote:'접수 내역 확인',referenceUrl:'https://example.com/submission',rightsConfirmed:true});
+  m.reviewFingerprint=publicationFingerprint(p,m);
+  const recorded=recordPublicationVersion(p,m,new Date('2026-10-20T00:00:00Z'));
+  assert.equal(recorded.history.length,1); assert.equal(m.history.length,0);
+  assert.equal(recorded.history[0].review.rightsConfirmed,true); assert.equal(recorded.history[0].submissionDate,'2026-10-20');
+  assert.equal(publicationFingerprint(p,recorded),m.reviewFingerprint,'adding history does not invalidate reviews');
+  assert.equal(publicationFingerprint(p,{...recorded,distributionStatus:'live'}),m.reviewFingerprint,'external state is not book content');
+  assert.notEqual(publicationFingerprint(p,{...recorded,price:'9000'}),m.reviewFingerprint,'changing colophon price invalidates reviews');
+  const revised=recordPublicationVersion({...p,title:'개정 제목'},recorded,new Date('2026-10-21T00:00:00Z'));
+  assert.equal(revised.history[1].review.rightsConfirmed,false);
+  assert.equal(validatePublication(JSON.parse(JSON.stringify(revised))).history.length,2);
+  let many=recorded;
+  for(let i=0;i<103;i++) many=recordPublicationVersion(p,many,new Date(1792454400000+i*1000));
+  assert.equal(many.history.length,100);
+  for(const bad of [{...m,history:new Array(101).fill(recorded.history[0])},{...m,history:[{...recorded.history[0],referenceUrl:'javascript:alert(1)'}]},{...m,history:[{...recorded.history[0],review:{rightsConfirmed:'yes'}}]},{...m,history:[{...recorded.history[0],recordedAt:'bad'}]},{...m,distributionStatus:'fake'},{...m,coverWidth:99999}]) assert.throws(()=>validatePublication(bad));
+  assert.throws(()=>recordPublicationVersion(p,metadata()),/판본/);
+  assert.throws(()=>recordPublicationVersion(p,{...m,isbnStatus:'issued',isbn:''}),/ISBN/);
+});
+test('publication panel records history and retains it while later metadata changes invalidate review', async()=>{
+  const win=new Window({settings:{disableJavaScriptEvaluation:true}}),p=fixture(); p.publication=metadata({edition:'초판',rightsConfirmed:true}); p.publication.reviewFingerprint=publicationFingerprint(p);
+  win.document.body.innerHTML=renderPublicationPanel(p); const panel=win.document.querySelector('.publication-panel');
+  const mounted=mountPublicationPanel(panel,{getProject:()=>p,onSave:m=>p.publication=m});
+  try {
+    panel.querySelector('[data-publication-action="record"]').click(); await new Promise(r=>setTimeout(r,0));
+    assert.equal(p.publication.history.length,1,panel.querySelector('.publication-message').textContent); assert.equal(p.publication.history[0].review.rightsConfirmed,true);
+    const price=panel.querySelector('[name="price"]'); price.value='7000'; price.dispatchEvent(new win.Event('input',{bubbles:true}));
+    assert.equal(p.publication.rightsConfirmed,false); assert.equal(p.publication.history.length,1); assert.match(panel.querySelector('[data-publication-history]').textContent,/이전 내용/);
+    const check=panel.querySelector('[name="rightsConfirmed"]');check.checked=true;check.dispatchEvent(new win.Event('change',{bubbles:true}));
+    assert.equal(p.publication.rightsConfirmed,true);assert.equal(p.publication.reviewFingerprint,publicationFingerprint(p));
+    assert.equal(validatePublication(JSON.parse(JSON.stringify(p.publication))).history.length,1);
+  }finally{mounted.dispose();await win.happyDOM.close();}
 });

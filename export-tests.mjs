@@ -41,7 +41,7 @@ test('EPUB is a valid ZIP with correct CRCs, XML, complete manifest, navigation 
   try {
     const path = join(folder, 'book.epub');
     await writeFile(path, bytes);
-    const python = spawnSync('python3', ['-c', String.raw`
+    const python = spawnSync('python3', ['-X', 'utf8', '-c', String.raw`
 import sys, zipfile, xml.etree.ElementTree as ET, posixpath
 with zipfile.ZipFile(sys.argv[1]) as z:
     assert z.testzip() is None, 'ZIP CRC mismatch'
@@ -175,7 +175,7 @@ test('the real sample project exports every generated SVG illustration as safe, 
     assert.ok(svg.includes('xmlns="http://www.w3.org/2000/svg"'), path);
     assert.ok(svg.includes('<path '));
     assert.ok(svg.includes('<title '));
-    const parsed = spawnSync('python3', ['-c', 'import sys,xml.etree.ElementTree as E; E.fromstring(sys.stdin.read())'], { input: svg, encoding: 'utf8' });
+    const parsed = spawnSync('python3', ['-X', 'utf8', '-c', 'import sys,xml.etree.ElementTree as E; E.fromstring(sys.stdin.read())'], { input: svg, encoding: 'utf8' });
     assert.equal(parsed.status, 0, parsed.stderr);
   }
   const html = await exportHTML(project);
@@ -261,7 +261,7 @@ test('shared image validation rejects truncated PNGs and bad chunk CRCs while pr
 
 test('image pixel limits are checked from valid headers before browser decoding', () => {
   const makePNG = (width, height) => {
-    const result = spawnSync('python3', ['-c', String.raw`
+    const result = spawnSync('python3', ['-X', 'utf8', '-c', String.raw`
 import sys, struct, zlib, base64
 def chunk(kind, data): return struct.pack('>I',len(data))+kind+data+struct.pack('>I',zlib.crc32(kind+data))
 data=b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',int(sys.argv[1]),int(sys.argv[2]),8,6,0,0,0))+chunk(b'IDAT',zlib.compress(b'\0\0\0\0\xff'))+chunk(b'IEND',b'')
@@ -305,7 +305,7 @@ test('Unicode and XML-invalid control characters cannot corrupt an exported publ
   const entries = zipEntries(await buildEpub(fixture({ title: source, author: source, chapters: [{ title: source, content: source }] })));
   for (const [path, bytes] of entries) {
     if (!/\.(xhtml|opf|svg|xml)$/.test(path)) continue;
-    const parsed = spawnSync('python3', ['-c', 'import sys,xml.etree.ElementTree as E; E.fromstring(sys.stdin.buffer.read())'], { input: bytes, encoding: 'utf8' });
+    const parsed = spawnSync('python3', ['-X', 'utf8', '-c', 'import sys,xml.etree.ElementTree as E; E.fromstring(sys.stdin.buffer.read())'], { input: bytes, encoding: 'utf8' });
     assert.equal(parsed.status, 0, `${path}: ${parsed.stderr}`);
   }
   const chapter = new TextDecoder().decode(entries.get('OEBPS/chapter-001.xhtml'));
@@ -318,7 +318,7 @@ test('a thousand chapters retain unique manifest IDs and navigation links at fil
   const entries = zipEntries(await buildEpub(fixture({ chapters })));
   const opf = new TextDecoder().decode(entries.get('OEBPS/package.opf'));
   const nav = new TextDecoder().decode(entries.get('OEBPS/nav.xhtml'));
-  const parsed = spawnSync('python3', ['-c', String.raw`
+  const parsed = spawnSync('python3', ['-X', 'utf8', '-c', String.raw`
 import json,sys,xml.etree.ElementTree as E
 data=json.load(sys.stdin); ns={'o':'http://www.idpf.org/2007/opf','h':'http://www.w3.org/1999/xhtml'}
 opf=E.fromstring(data['opf']); items=opf.findall('o:manifest/o:item',ns)
@@ -338,7 +338,7 @@ test('the cover adapts its title size without silently truncating a supported 16
   const title = '소중하게남겨두고싶은문장'.repeat(20).slice(0, 158) + '😀';
   const entries = zipEntries(await buildEpub(fixture({ title })));
   const svg = new TextDecoder().decode(entries.get('OEBPS/images/cover.svg'));
-  const parsed = spawnSync('python3', ['-c', String.raw`
+  const parsed = spawnSync('python3', ['-X', 'utf8', '-c', String.raw`
 import sys,xml.etree.ElementTree as E,json
 root=E.fromstring(sys.stdin.read())
 lines=[node for node in root.findall('{http://www.w3.org/2000/svg}text') if node.attrib.get('x')=='100']
@@ -359,7 +359,7 @@ test('long, tilde and unclosed code fences preserve code verbatim, including C# 
   const project = fixture({ chapters: [{ title: '코드 예제', content }] });
   const entries = zipEntries(await buildEpub(project));
   const chapter = new TextDecoder().decode(entries.get('OEBPS/chapter-001.xhtml'));
-  const parsed = spawnSync('python3', ['-c', String.raw`
+  const parsed = spawnSync('python3', ['-X', 'utf8', '-c', String.raw`
 import sys,json,xml.etree.ElementTree as E
 root=E.fromstring(sys.stdin.read()); ns={'h':'http://www.w3.org/1999/xhtml'}
 codes=[node.text or '' for node in root.findall('.//h:pre/h:code',ns)]

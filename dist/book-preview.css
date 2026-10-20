@@ -10,7 +10,7 @@
 .folio-book-page.is-left{background:linear-gradient(90deg,var(--book-paper) 92%,#ece9df)}
 .folio-book-page.is-right{background:linear-gradient(90deg,#e9e6dd,var(--book-paper) 9%)}
 .folio-book-page-header{font:10px/1.6 'Pretendard','Malgun Gothic',sans-serif;letter-spacing:.08em;color:#7b806f;padding-bottom:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:none}
-.folio-book-page-body{flex:1;min-height:0;overflow:hidden;display:flow-root}
+.folio-book-page-body{flex:1;min-height:0;overflow:hidden;display:flow-root;word-break:keep-all;overflow-wrap:anywhere;line-break:strict}
 .folio-book-page-body>:first-child{margin-top:0}
 .folio-book-page-body h1,.folio-book-page-body h2,.folio-book-page-body h3,.folio-book-page-body h4{font-family:inherit;font-weight:600;line-height:1.5;letter-spacing:-.025em}
 .folio-book-page-body h1{font-size:1.8em;margin:0 0 1.2em}.folio-book-page-body h2{font-size:1.4em;margin:1.6em 0 .7em}.folio-book-page-body h3{font-size:1.15em;margin:1.4em 0 .6em}

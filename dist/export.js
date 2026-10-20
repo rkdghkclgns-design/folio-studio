@@ -60,13 +60,14 @@ function safeLink(value) {
 
 function inlineMarkdown(value, depth = 0) {
   if (depth > 3) return escape(value);
-  const expression = /`([^`\n]+)`|\*\*([^*\n]+)\*\*|\*([^*\n]+)\*|\[([^\[\]\n]+)\]\(([^\s)\[]+)\)/g;
+  const expression = /`([^`\n]+)`|\*\*([^*\n]+)\*\*|\*([^*\n]+)\*|\[([^\[\]\n]+)\]\(([^\s)\[]+)\)|\\([!-/:-@\[-`{-~])/g;
   let result = '', cursor = 0;
   for (const match of value.matchAll(expression)) {
     result += escape(value.slice(cursor, match.index));
     if (match[1] !== undefined) result += `<code>${escape(match[1])}</code>`;
     else if (match[2] !== undefined) result += `<strong>${inlineMarkdown(match[2], depth + 1)}</strong>`;
     else if (match[3] !== undefined) result += `<em>${inlineMarkdown(match[3], depth + 1)}</em>`;
+    else if (match[6] !== undefined) result += escape(match[6]);
     else {
       const href = safeLink(match[5]);
       const label = inlineMarkdown(match[4], depth + 1);
@@ -683,7 +684,7 @@ const BOOK_CSS = `
 @charset "UTF-8";
 *{box-sizing:border-box}
 html{color:#272c29;background:#fff}
-body{margin:0;font-family:${FONT_SERIF};font-size:1em;line-height:1.95;word-break:keep-all;overflow-wrap:break-word;-webkit-text-size-adjust:100%}
+body{margin:0;font-family:${FONT_SERIF};font-size:1em;line-height:1.95;word-break:keep-all;overflow-wrap:anywhere;line-break:strict;-webkit-text-size-adjust:100%}
 h1,h2,h3,h4,h5,h6{font-weight:600;line-height:1.5;page-break-after:avoid;break-after:avoid}
 h1{font-size:2em;margin:.4em 0 1.5em;letter-spacing:-.03em}
 h2{font-size:1.5em;margin:2em 0 .8em}h3{font-size:1.2em;margin:1.8em 0 .6em}
@@ -710,7 +711,7 @@ function xhtml(project, title, body, extraClass = '') {
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" lang="${escape(project.language)}" xml:lang="${escape(project.language)}">
 <head><title>${escape(title)}</title><meta charset="utf-8"/><link rel="stylesheet" type="text/css" href="styles/book.css"/></head>
-<body${extraClass ? ` class="${escape(extraClass)}"` : ''}>${body}</body></html>`;
+<body${extraClass ? ` class="${escape(extraClass)}"` : ''}><main>${body}</main></body></html>`;
 }
 
 function figure(image, src) {
@@ -795,7 +796,7 @@ export async function buildEpub(input) {
   const publishingMetadata = `${publication.publisher ? `<dc:publisher>${escape(publication.publisher)}</dc:publisher>` : ''}${rights ? `<dc:rights>${escape(rights)}</dc:rights>` : ''}${validDate ? `<dc:date>${publicationDate}</dc:date>` : ''}${validISBN ? `<dc:identifier>urn:isbn:${isbn}</dc:identifier>` : ''}`;
   const chapterFile = index => `chapter-${String(index + 1).padStart(3, '0')}.xhtml`;
   const chapterMarkup = project.chapters.map((chapter, index) => renderMarkdownWithFigures(chapter.content, figures[index]));
-  const nav = `<nav epub:type="toc" id="toc" class="toc" role="doc-toc"><h1>목차</h1><ol>${project.chapters.length ? project.chapters.map((chapter, index) => `<li><a href="${chapterFile(index)}">${escape(chapter.title)}</a></li>`).join('') : '<li><a href="title.xhtml">책 소개</a></li>'}</ol></nav>
+  const nav = `<nav epub:type="toc" id="toc" class="toc" role="doc-toc"><h1 id="toc-heading">목차</h1><ol>${project.chapters.length ? project.chapters.map((chapter, index) => `<li><a href="${chapterFile(index)}">${escape(chapter.title)}</a></li>`).join('') : '<li><a href="title.xhtml">책 소개</a></li>'}</ol></nav>
 <nav epub:type="landmarks" hidden="hidden"><h2>책의 구성</h2><ol><li><a epub:type="cover" href="cover.xhtml">표지</a></li><li><a epub:type="toc" href="nav.xhtml#toc">목차</a></li>${project.chapters.length ? `<li><a epub:type="bodymatter" href="${chapterFile(0)}">본문</a></li>` : ''}</ol></nav>`;
   const manifest = [
     '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>',
@@ -805,9 +806,12 @@ export async function buildEpub(input) {
     ...assets.map(asset => `<item id="${asset.id}" href="${asset.path}" media-type="${asset.mime}"${asset.cover ? ' properties="cover-image"' : ''}/>`),
     ...project.chapters.map((_, index) => `<item id="chapter-${index + 1}" href="${chapterFile(index)}" media-type="application/xhtml+xml"${/<svg(?:\s|>)/.test(chapterMarkup[index]) ? ' properties="svg"' : ''}/>`),
   ];
+  // Describe generated structure without claiming audited WCAG/EPUB accessibility.
+  // Every edition has a visual cover; prose remains selectable/reflowable text.
+  const accessibilityMetadata = '<meta property="schema:accessMode">textual</meta><meta property="schema:accessMode">visual</meta><meta property="schema:accessibilityFeature">tableOfContents</meta><meta property="schema:accessibilityFeature">readingOrder</meta><meta property="schema:accessibilityFeature">structuralNavigation</meta><meta property="schema:accessibilitySummary">재배치 가능한 본문, 읽기 순서, 목차와 장 탐색을 제공합니다. 이미지 대체 텍스트의 정확성과 전체 접근성은 출판 전 별도 검토가 필요합니다.</meta><meta property="rendition:layout">reflowable</meta>';
   const packageDocument = `<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id" xml:lang="${escape(project.language)}">
-<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="book-id">${escape(identifier)}</dc:identifier><dc:title>${escape(project.title)}</dc:title><dc:creator>${escape(project.author)}</dc:creator><dc:language>${escape(project.language)}</dc:language>${project.description ? `<dc:description>${escape(project.description)}</dc:description>` : ''}${publishingMetadata}<meta property="dcterms:modified">${modified}</meta><meta name="cover" content="${cover.id}"/></metadata>
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="book-id">${escape(identifier)}</dc:identifier><dc:title>${escape(project.title)}</dc:title><dc:creator>${escape(project.author)}</dc:creator><dc:language>${escape(project.language)}</dc:language>${project.description ? `<dc:description>${escape(project.description)}</dc:description>` : ''}${publishingMetadata}${accessibilityMetadata}<meta property="dcterms:modified">${modified}</meta><meta name="cover" content="${cover.id}"/></metadata>
 <manifest>${manifest.join('\n')}</manifest>
 <spine><itemref idref="cover"/><itemref idref="titlepage"/><itemref idref="nav"/>${project.chapters.map((_, index) => `<itemref idref="chapter-${index + 1}"/>`).join('')}</spine></package>`;
   const entries = [
@@ -818,7 +822,7 @@ export async function buildEpub(input) {
     ['OEBPS/cover.xhtml', xhtml(project, `${project.title} — 표지`, coverMarkup(project, cover, cover.path, true), 'cover-page')],
     ['OEBPS/title.xhtml', xhtml(project, project.title, `<section epub:type="titlepage" class="chapter"><h1>${escape(project.title)}</h1>${project.subtitle ? `<p class="book-subtitle">${escape(project.subtitle)}</p>` : ''}<p class="book-author">${escape(project.author)}</p>${project.description ? `<p>${escape(project.description).replace(/\n/g, '<br />')}</p>` : ''}</section>`)],
     ['OEBPS/nav.xhtml', xhtml(project, `${project.title} — 목차`, nav)],
-    ...project.chapters.map((chapter, index) => [`OEBPS/${chapterFile(index)}`, xhtml(project, chapter.title, `<section epub:type="chapter" class="chapter"><p class="chapter-number">${String(index + 1).padStart(2, '0')}</p><h1>${escape(chapter.title)}</h1>${figure(images[index], images[index]?.path)}${chapterMarkup[index]}</section>`)]),
+    ...project.chapters.map((chapter, index) => [`OEBPS/${chapterFile(index)}`, xhtml(project, chapter.title, `<section epub:type="chapter" role="doc-chapter" aria-labelledby="chapter-heading" class="chapter"><p class="chapter-number">${String(index + 1).padStart(2, '0')}</p><h1 id="chapter-heading">${escape(chapter.title)}</h1>${figure(images[index], images[index]?.path)}${chapterMarkup[index]}</section>`)]),
     ...assets.map(asset => [`OEBPS/${asset.path}`, asset.bytes]),
   ];
   return zip(entries, project.updatedAt);

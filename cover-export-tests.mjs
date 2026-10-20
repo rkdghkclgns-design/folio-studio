@@ -105,7 +105,7 @@ test('EPUB thumbnail composes the title, subtitle, author and selected image int
   assert.ok(svg.includes('도시의 정원과 계절의 기록'));
   assert.ok(svg.includes('김정원 지음'));
   assert.ok(text(files, 'OEBPS/cover.xhtml').includes('src="images/cover.svg"'));
-  const parsed = spawnSync('python3', ['-c', 'import sys,xml.etree.ElementTree as E; E.fromstring(sys.stdin.buffer.read())'], { input: svg, encoding: 'utf8' });
+  const parsed = spawnSync('python3', ['-X', 'utf8', '-c', 'import sys,xml.etree.ElementTree as E; E.fromstring(sys.stdin.buffer.read())'], { input: svg, encoding: 'utf8' });
   assert.equal(parsed.status, 0, parsed.stderr);
 });
 
@@ -170,7 +170,7 @@ test('composed SVG keeps an entire long Korean title and subtitle instead of sil
   const subtitle = '정원에서보낸계절의기록'.repeat(45).slice(0, 500);
   const files = entries(await buildEpub(fixture({ title, subtitle })));
   const svg = text(files, 'OEBPS/images/cover.svg');
-  const parsed = spawnSync('python3', ['-c', String.raw`
+  const parsed = spawnSync('python3', ['-X', 'utf8', '-c', String.raw`
 import sys,xml.etree.ElementTree as E,json
 root=E.fromstring(sys.stdin.read()); lines=root.findall('{http://www.w3.org/2000/svg}text')
 texts=''.join(n.text or '' for n in lines)

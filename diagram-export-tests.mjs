@@ -28,7 +28,7 @@ function zipEntries(bytes) {
 }
 
 function xmlCheck(value, assertions = '') {
-  const result = spawnSync('python3', ['-c', `import sys, xml.etree.ElementTree as E\nroot = E.fromstring(sys.stdin.read())\n${assertions}`], { input: value, encoding: 'utf8' });
+  const result = spawnSync('python3', ['-X', 'utf8', '-c', `import sys, xml.etree.ElementTree as E\nroot = E.fromstring(sys.stdin.read())\n${assertions}`], { input: value, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr || result.stdout);
 }
 

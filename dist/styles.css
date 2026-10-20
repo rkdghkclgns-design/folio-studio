@@ -14,3 +14,7 @@
 .writing-preferences{margin:16px 0 24px;padding:12px 15px;border:1px solid var(--line);border-radius:7px;background:#fafcf7}.writing-preferences summary{cursor:pointer;font-size:11px;color:#68775c}.writing-preferences textarea{min-height:80px}
 
 .manuscript-text:focus-visible,.chapter-title:focus-visible{outline:2px solid var(--sage);outline-offset:4px;border-radius:3px}.storage-recovery{font-size:12px}.storage-recovery p{margin:5px 0}.storage-recovery .inline-actions{margin-top:8px}
+
+/* Keep Korean words together; only oversized URLs/tokens use emergency wrapping. */
+.manuscript-text,.read-content,.reading-preview .read-content{word-break:keep-all;overflow-wrap:anywhere;line-break:strict}
+.read-content pre,.read-content code{word-break:normal;overflow-wrap:anywhere}
