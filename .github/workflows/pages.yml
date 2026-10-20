@@ -61,8 +61,7 @@ jobs:
         env:
           FOLIO_PAGES_ORIGIN: ${{ steps.pages.outputs.origin }}
         run: |
-          mkdir -p "$RUNNER_TEMP/folio-pages"
-          cp -R dist/. "$RUNNER_TEMP/folio-pages/"
+          node scripts/package-static.mjs "$RUNNER_TEMP/folio-pages"
           python3 companion/package.py \
             --site-origin "$FOLIO_PAGES_ORIGIN" \
             --output "$RUNNER_TEMP/folio-pages/downloads/folio-computer-companion.zip"
