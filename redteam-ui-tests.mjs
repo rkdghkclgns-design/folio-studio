@@ -74,6 +74,7 @@ async function boot(t) {
   };
   await import(`./dist/app.js?red-ui=${Date.now()}-${importNumber++}`);
   await settle();
+  await click("[data-action=\"editor-tab\"][data-tab=\"write\"]");
   return { win, ai, install, $, settle, click, input, navigate, submit, save, current, delayedImage };
 }
 
@@ -150,7 +151,7 @@ test('closing paginated preview restores focus to its original opener', async t 
   opener.focus();
   opener.click();
   await app.settle(15);
-  const next = app.$('.modal [data-action="preview-next"]');
+  const next = app.$('.modal [data-book-next]');
   next.focus(); next.click();
   await app.settle(15);
   document.dispatchEvent(new app.win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));

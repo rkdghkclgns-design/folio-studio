@@ -74,7 +74,8 @@ async function boot(t, { workspace } = {}) {
     ai.clearAI(); await import(`./dist/app.js?computer-book-ui=${bootNumber++}`); await settle();
   };
   await import(`./dist/app.js?computer-book-ui=${bootNumber++}`);
-  await until(() => document.querySelector('#manuscript-text') && localStorage.getItem(workspaceKey));
+  await until(() => document.querySelector('[data-tab="write"]') && localStorage.getItem(workspaceKey));
+  await click('[data-action="editor-tab"][data-tab="write"]');
   return { ai, install, $, $$, settle, until, click, input, key, submit, saved, save, current, attach, restart, downloads, requests, get win() { return win; } };
 }
 

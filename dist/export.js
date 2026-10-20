@@ -1,6 +1,7 @@
 /** Portable, dependency-free exports for Folio Studio. */
 import { getCoverPresentation } from './cover.js';
 import { DIAGRAM_CSS, renderDiagram } from './diagrams.js';
+import { BOOK_PREVIEW_CSS, standaloneReaderScript } from './book-preview.js';
 
 const encoder = new TextEncoder();
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
@@ -785,6 +786,13 @@ export async function buildEpub(input) {
   const { assets, cover, chapters: images, figures } = await prepareImages(project, true);
   const identifier = `urn:folio:${hashIdentifier(clean(project.id) || `${project.title}|${project.author}`)}`;
   const modified = project.updatedAt.replace(/\.\d{3}Z$/, 'Z');
+  const publication = project.publication && typeof project.publication === 'object' ? project.publication : {};
+  const isbn = clean(publication.isbn).replace(/[-\s]/g, '');
+  const validISBN = /^(978|979)\d{10}$/.test(isbn) && [...isbn].reduce((sum, digit, index) => sum + Number(digit) * (index % 2 ? 3 : 1), 0) % 10 === 0;
+  const publicationDate = clean(publication.publicationDate);
+  const validDate = /^\d{4}-\d{2}-\d{2}$/.test(publicationDate) && !Number.isNaN(Date.parse(publicationDate)) && new Date(publicationDate).toISOString().slice(0, 10) === publicationDate;
+  const rights = clean(publication.rightsStatement || publication.rightsHolder).trim();
+  const publishingMetadata = `${publication.publisher ? `<dc:publisher>${escape(publication.publisher)}</dc:publisher>` : ''}${rights ? `<dc:rights>${escape(rights)}</dc:rights>` : ''}${validDate ? `<dc:date>${publicationDate}</dc:date>` : ''}${validISBN ? `<dc:identifier>urn:isbn:${isbn}</dc:identifier>` : ''}`;
   const chapterFile = index => `chapter-${String(index + 1).padStart(3, '0')}.xhtml`;
   const chapterMarkup = project.chapters.map((chapter, index) => renderMarkdownWithFigures(chapter.content, figures[index]));
   const nav = `<nav epub:type="toc" id="toc" class="toc" role="doc-toc"><h1>목차</h1><ol>${project.chapters.length ? project.chapters.map((chapter, index) => `<li><a href="${chapterFile(index)}">${escape(chapter.title)}</a></li>`).join('') : '<li><a href="title.xhtml">책 소개</a></li>'}</ol></nav>
@@ -799,7 +807,7 @@ export async function buildEpub(input) {
   ];
   const packageDocument = `<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id" xml:lang="${escape(project.language)}">
-<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="book-id">${escape(identifier)}</dc:identifier><dc:title>${escape(project.title)}</dc:title><dc:creator>${escape(project.author)}</dc:creator><dc:language>${escape(project.language)}</dc:language>${project.description ? `<dc:description>${escape(project.description)}</dc:description>` : ''}<meta property="dcterms:modified">${modified}</meta><meta name="cover" content="${cover.id}"/></metadata>
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="book-id">${escape(identifier)}</dc:identifier><dc:title>${escape(project.title)}</dc:title><dc:creator>${escape(project.author)}</dc:creator><dc:language>${escape(project.language)}</dc:language>${project.description ? `<dc:description>${escape(project.description)}</dc:description>` : ''}${publishingMetadata}<meta property="dcterms:modified">${modified}</meta><meta name="cover" content="${cover.id}"/></metadata>
 <manifest>${manifest.join('\n')}</manifest>
 <spine><itemref idref="cover"/><itemref idref="titlepage"/><itemref idref="nav"/>${project.chapters.map((_, index) => `<itemref idref="chapter-${index + 1}"/>`).join('')}</spine></package>`;
   const entries = [
@@ -816,22 +824,54 @@ export async function buildEpub(input) {
   return zip(entries, project.updatedAt);
 }
 
-export async function exportHTML(input) {
+/** Reuse the publication ZIP writer for offline publishing packages. */
+export function buildArchive(entries, modified = new Date().toISOString()) {
+  if (!Array.isArray(entries) || entries.some(entry => !Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== 'string' || !entry[0] || /(^\/|\\|(?:^|\/)\.\.(?:\/|$))/.test(entry[0]) || !(typeof entry[1] === 'string' || entry[1] instanceof Uint8Array))) throw new Error('압축할 파일 목록이 올바르지 않습니다.');
+  if (new Set(entries.map(([path]) => path)).size !== entries.length) throw new Error('압축 파일 이름이 중복되었습니다.');
+  const date = new Date(modified);
+  if (Number.isNaN(date.getTime())) throw new Error('압축 파일의 날짜가 올바르지 않습니다.');
+  return zip(entries, date.toISOString());
+}
+
+/** Validated HTML sections shared by the app viewer and standalone export. */
+export async function prepareBookPreview(input) {
   const project = normalizeProject(input);
   const { cover, chapters: images, figures } = await prepareImages(project, false);
   const src = image => `data:${image.mime};base64,${bytesToBase64(image.bytes)}`;
+  const sections = [
+    { id: 'book-cover', title: '표지', kind: 'cover', html: coverMarkup(project, cover, src(cover)) },
+    { id: 'book-title', title: '책 소개', kind: 'title', html: `<h1>${escape(project.title)}</h1>${project.subtitle ? `<p class="book-subtitle">${escape(project.subtitle)}</p>` : ''}<p class="book-author">${escape(project.author)}</p>${project.description ? `<p>${escape(project.description).replace(/\n/g, '<br>')}</p>` : ''}` },
+    { id: 'book-toc', title: '목차', kind: 'toc', html: `<h1>목차</h1><ol>${project.chapters.map((chapter, index) => `<li><a href="#chapter-${index + 1}">${String(index + 1).padStart(2, '0')}　${escape(chapter.title)}</a></li>`).join('')}</ol>` },
+    ...project.chapters.map((chapter, index) => ({ id: `chapter-${index + 1}`, title: chapter.title, kind: 'chapter', html: `<p class="chapter-number">${String(index + 1).padStart(2, '0')}</p><h1>${escape(chapter.title)}</h1>${figure(images[index], images[index] ? src(images[index]) : '')}${renderMarkdownWithFigures(chapter.content, figures[index])}` })),
+  ];
+  return { title: project.title, language: project.language, sections };
+}
+
+/** HTML defaults to an offline page-turning reader; print/PDF may opt out. */
+export async function exportHTML(input, { interactive = true } = {}) {
+  const project = normalizeProject(input), { sections } = await prepareBookPreview(project);
+  const script = interactive ? standaloneReaderScript() : '';
+  const scriptHash = script ? bytesToBase64(new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', encoder.encode(script)))) : '';
+  const body = sections.map(section => {
+    const attributes = `id="${section.id}" data-book-kind="${section.kind}" data-book-title="${escape(section.title)}"`;
+    if (section.kind === 'cover') return section.html.replace('<section', `<section ${attributes}`);
+    const tag = section.kind === 'toc' ? 'nav' : 'section';
+    return `<${tag} ${attributes} class="${section.kind === 'title' ? 'title-page' : section.kind}"${section.kind === 'toc' ? ' aria-label="목차"' : ''}>${section.html}</${tag}>`;
+  }).join('\n');
   return `<!DOCTYPE html>
-<html lang="${escape(project.language)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="author" content="${escape(project.author)}"><meta name="description" content="${escape(project.description)}"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src 'none'; base-uri 'none'; form-action 'none'"><title>${escape(project.title)}</title><style>${BOOK_CSS}
+<html lang="${escape(project.language)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="author" content="${escape(project.author)}"><meta name="description" content="${escape(project.description)}"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; ${script ? `script-src 'sha256-${scriptHash}'; ` : ''}font-src 'none'; base-uri 'none'; form-action 'none'"><title>${escape(project.title)}</title><style>${BOOK_CSS}
 html{background:#f0f1ed}body{max-width:800px;margin:40px auto;background:#fff;box-shadow:0 12px 60px #24302710}
 .cover-page img{max-height:none}.title-page,.toc,.chapter{padding:72px 80px}.title-page h1{margin-bottom:.5em}.title-page{border-bottom:1px solid #e7e9e3}.chapter+.chapter{border-top:1px solid #e7e9e3}
 @media(max-width:640px){body{margin:0}.title-page,.toc,.chapter{padding:40px 24px}h1{font-size:1.7em}}
 @page{size:A5;margin:16mm 13mm}
 @media print{html,body{background:#fff}body{margin:0;max-width:none;box-shadow:none;font-size:11pt}.cover-page{break-after:page;page-break-after:always;print-color-adjust:exact;-webkit-print-color-adjust:exact}.cover-page img{max-height:178mm;width:auto;max-width:100%;margin:auto}.cover-frame{height:178mm;width:118.66mm;max-width:100%;padding-top:0;margin:0 auto}.cover-frame img{height:100%;min-height:0;width:100%}.cover-copy h1{font-size:28pt}.title-page,.toc,.chapter{padding:0;border:0!important;break-before:page;page-break-before:always}.chapter+.chapter{border:0}figure img{max-height:145mm}a{text-decoration:none}h1{font-size:24pt}h2{font-size:17pt}h3{font-size:14pt}}
+${interactive ? `${BOOK_PREVIEW_CSS}
+#folio-book-reader{display:none}.folio-reader-enhanced #folio-book-reader{display:block}.folio-reader-enhanced #folio-book-source{display:none}.folio-reader-enhanced body{max-width:1020px;margin:16px auto;padding:20px 24px;background:transparent;box-shadow:none}.folio-book-page-body.toc{padding:0}
+@media(max-width:640px){.folio-reader-enhanced body{padding:14px}}@media print{.folio-reader-enhanced body{padding:0}.folio-reader-enhanced #folio-book-reader{display:none!important}.folio-reader-enhanced #folio-book-source{display:block!important}}
+` : ''}
 </style></head><body>
-${coverMarkup(project, cover, src(cover))}
-<section class="title-page"><h1>${escape(project.title)}</h1>${project.subtitle ? `<p class="book-subtitle">${escape(project.subtitle)}</p>` : ''}<p class="book-author">${escape(project.author)}</p>${project.description ? `<p>${escape(project.description).replace(/\n/g, '<br>')}</p>` : ''}</section>
-<nav class="toc" aria-label="목차"><h1>목차</h1><ol>${project.chapters.map((chapter, index) => `<li><a href="#chapter-${index + 1}">${String(index + 1).padStart(2, '0')}　${escape(chapter.title)}</a></li>`).join('')}</ol></nav>
-${project.chapters.map((chapter, index) => `<section class="chapter" id="chapter-${index + 1}"><p class="chapter-number">${String(index + 1).padStart(2, '0')}</p><h1>${escape(chapter.title)}</h1>${figure(images[index], images[index] ? src(images[index]) : '')}${renderMarkdownWithFigures(chapter.content, figures[index])}</section>`).join('\n')}
+${interactive ? '<div id="folio-book-reader"></div>' : ''}<main id="folio-book-source">${body}</main>
+${script ? `<script id="folio-book-runtime">${script}</script>` : ''}
 </body></html>`;
 }
 

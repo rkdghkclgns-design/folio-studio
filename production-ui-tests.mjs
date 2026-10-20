@@ -29,7 +29,7 @@ test('production brief saves before API work and labels every editable input', (
   assert.equal(form.querySelector('[name=illustrations]').value,'design');
   assert.equal(doc.querySelector('#production-source-name').getAttribute('aria-live'),'polite');
   assert.equal(doc.querySelector('#production-feedback').getAttribute('role'),'alert');
-  assert.match(doc.body.textContent,/다음 화면에서 제작 시작을 눌러야/);
+  assert.match(doc.body.textContent,/예상 시간·비용을 확인하고 승인해야/);
 });
 
 test('page targets disclose conversion and actual pagination limits', () => {

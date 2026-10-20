@@ -95,7 +95,8 @@ test('a figure directly after a table remains a figure even when its alternative
 test('HTML and printable PDF document preserve legacy artwork plus inline screenshot positions', async () => {
   const project = book(); project.chapters[0].image = { src: PNG, alt: '장 앞의 기존 삽화' };
   const result = await exportHTML(project);
-  const chapter = result.slice(result.indexOf('<section class="chapter"'));
+  const chapter = result.match(/<section[^>]*class="chapter"[^>]*>([\s\S]*?)<\/section>/)?.[1];
+  assert.ok(chapter, 'The standalone HTML contains the source chapter for reading and printing');
   assert.equal((chapter.match(/<figure>/g) || []).length, 2);
   assert.ok(chapter.indexOf('alt="장 앞의 기존 삽화"') < chapter.indexOf('<p>조작 전 설명</p>'));
   assert.ok(chapter.indexOf('<p>조작 전 설명</p>') < chapter.indexOf('alt="엔티티를 추가한 모습"'));

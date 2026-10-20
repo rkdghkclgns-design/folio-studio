@@ -43,7 +43,8 @@ async function boot(t) {
   const failWrites = () => Object.defineProperty(win.localStorage, 'setItem', { configurable: true, value: () => { throw new DOMException('Quota exhausted', 'QuotaExceededError'); } });
   const restoreWrites = () => Object.defineProperty(win.localStorage, 'setItem', { configurable: true, value: setItem });
   await import(`./dist/app.js?audit-ux=${bootNumber++}`);
-  await until(() => document.querySelector('#manuscript-text') && localStorage.getItem('folio-studio-v1'));
+  await until(() => document.querySelector('[data-action="editor-tab"][data-tab="read"]') && localStorage.getItem('folio-studio-v1'));
+  await click('[data-action="editor-tab"][data-tab="write"]');
   const brief = async (title = '저장 복구를 확인할 책') => {
     await click('[data-action="production-new"]');
     await input('#production-topic', '저장 공간이 부족할 때 책을 복구하는 방법');

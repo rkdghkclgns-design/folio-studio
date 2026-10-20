@@ -160,7 +160,9 @@ test('standalone printable HTML includes diagrams, table styles and zero network
     assert.match(html, /break-inside:avoid/);
     assert.ok(html.includes(MARKDOWN_CSS));
     assert.match(html, /default-src 'none'/);
-    assert.ok(!html.includes('<script'));
+    assert.equal((html.match(/<script\b/g) || []).length, 1, 'only the trusted offline reader script is embedded');
+    assert.match(html, /script-src 'sha256-[A-Za-z0-9+/=]+'/);
+    assert.ok(!html.includes('<script src='));
   } finally { globalThis.fetch = originalFetch; }
 });
 

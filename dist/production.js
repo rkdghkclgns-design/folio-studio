@@ -2,6 +2,7 @@
 import {validateSourceManifest} from './source-files.js';
 import {validateSourceImages} from './source-images.js';
 import {parseDiagramBlocks, countableDiagramText, stripDiagramBlocks} from './diagrams.js';
+import {assertProductionApproval, consumeProductionApproval} from './production-estimate.js';
 const MAX_SOURCE = 120000;
 const SOURCE_CHUNK = 12000;
 const SECTION_MAX = 2500;
@@ -464,6 +465,11 @@ async function execute(project, options, retry) {
   if (retry && !production.plan?.chapters.some(chapter => chapter.sections.some(section => section.status === 'needs_review'))) return project;
   if (!ownObject(api)) fail('AI 제작 연결이 필요합니다.', 'MISSING_API');
   const requireApi = name => { if (typeof api[name] !== 'function') fail('AI 제작 연결을 확인해 주세요.', 'MISSING_API'); };
+  // The browser supplies this contract for every paid run. Pure consumers may
+  // still inject a local/test API without a provider or billing connection.
+  const approvalContext = options.approvalContext;
+  const currentConfig = () => approvalContext?.getConfig?.() || approvalContext?.config;
+  if (approvalContext) consumeProductionApproval(project, approvalContext.approval, currentConfig(), {retry});
   activeRuns.add(project);
   let saveFailed = false;
   const notify = () => onProgress(getProductionProgress(project), project);
@@ -481,10 +487,12 @@ async function execute(project, options, retry) {
   const beforeRequest = async name => {
     cancellation(signal);
     assertUnchanged(project);
+    if (approvalContext) assertProductionApproval(project, approvalContext.approval, currentConfig(), {retry, running:true});
     requireApi(name);
     production.requestsStarted++;
     await save();
     cancellation(signal);
+    if (approvalContext) assertProductionApproval(project, approvalContext.approval, currentConfig(), {retry, running:true});
   };
   const revise = async (ci, si, explicit = false) => {
     // A stop at the draft checkpoint has not started a correction request.

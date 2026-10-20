@@ -74,7 +74,8 @@ async function boot(t, { workspace } = {}) {
     ai.clearAI(); await import(`./dist/app.js?diagram-ui=${bootNumber++}`); await settle();
   };
   await import(`./dist/app.js?diagram-ui=${bootNumber++}`);
-  await until(() => document.querySelector('#manuscript-text') && localStorage.getItem(workspaceKey));
+  await until(() => document.querySelector('[data-tab="write"]') && localStorage.getItem(workspaceKey));
+  await click('[data-action="editor-tab"][data-tab="write"]');
   return { ai, install, $, $$, settle, until, click, input, key, submit, saved, save, current, attach, restart, downloads, requests, get win() { return win; } };
 }
 
@@ -129,6 +130,16 @@ async function saveBrief(app) {
   await app.submit('#production-form');
   await app.until(() => app.current()?.production, 'Production brief did not save');
   return app.current().production.brief;
+}
+
+async function approveStart(app) {
+  const before = app.requests.length;
+  await app.click('.modal [data-action="production-start"]');
+  await app.until(() => document.querySelector('#production-approval-check'));
+  assert.equal(app.requests.length, before, 'Opening the estimate must not send paid requests');
+  app.$('#production-approval-check').checked = true;
+  app.$('#production-approval-check').dispatchEvent(new app.win.Event('change', { bubbles: true }));
+  await app.click('[data-action="production-approve"]');
 }
 
 async function waitForTask(app) {
@@ -193,8 +204,9 @@ test('one explicit diagram request inserts a grounded chart after its paragraph 
   assert.ok(app.$('.read-content').textContent.includes('12'));
   assert.equal(app.$('.read-content').textContent.includes('folio-diagram'), false);
   await app.click('.project-head-actions [data-action="preview"]');
-  await app.click('[data-action="preview-page"][data-index="1"]');
-  assert.ok(app.$('.reading-preview svg'));
+  await app.until(() => document.querySelector('[data-book-section]'));
+  await app.input('[data-book-section]', '3', true);
+  assert.ok(Boolean(app.$('.folio-book-stage svg')));
 });
 
 test('an unnecessary diagram returns its reason without editing or creating a history entry', async t => {
@@ -306,7 +318,7 @@ test('automatic production adds a contextual table inside the existing writing r
     return result;
   });
   await newBrief(app); await saveBrief(app);
-  await app.click('.modal [data-action="production-start"]');
+  await approveStart(app);
   await app.until(() => document.querySelector('.production-summary[data-production-status="complete"]'), 'Production with diagrams should complete');
   const { parseDiagramBlocks } = await import('./dist/diagrams.js');
   assert.equal(parseDiagramBlocks(app.current().chapters[0].content, { strict: true }).length, 1);
@@ -321,7 +333,7 @@ test('automatic diagrams can be turned off without changing source analysis or c
     if (payload.operation === 'production_section') assert.equal(payload.brief.diagrams, 'none');
   });
   await newBrief(app, 'none'); await saveBrief(app);
-  await app.click('.modal [data-action="production-start"]');
+  await approveStart(app);
   await app.until(() => document.querySelector('.production-summary[data-production-status="complete"]'));
   assert.ok(app.current().chapters.every(chapter => !chapter.content.includes('folio-diagram')));
   assert.equal(app.current().production.brief.diagrams, 'none');
@@ -332,7 +344,7 @@ test('a provider adding a diagram against the disabled preference cannot apply t
   const app = await boot(t);
   connectMock(app, ({ payload }) => payload.operation === 'production_section' ? { ...mockedProduction(payload), content: `${'가'.repeat(payload.targetChars)}\n\n${block(table)}` } : undefined);
   await newBrief(app, 'none'); await saveBrief(app);
-  await app.click('.modal [data-action="production-start"]');
+  await approveStart(app);
   await app.until(() => document.querySelector('.modal [data-action="close-modal"]'), 'Disabled diagram response should fail');
   assert.ok(app.current().chapters.every(chapter => !chapter.content.includes('folio-diagram')));
   assert.notEqual(app.current().production.status, 'complete');

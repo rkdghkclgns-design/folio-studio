@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import * as ai from './dist/ai.js';
 import { createProductionProject, getProductionProgress, runProduction, validateProductionData } from './dist/production.js';
 
+import {estimateProduction,createProductionApproval} from './dist/production-estimate.js';
+
 const originalFetch = globalThis.fetch;
 const originalSetTimeout = globalThis.setTimeout;
 const key = 'AIza-redteam-google-error-not-a-real-key';
@@ -157,7 +159,10 @@ test('planning failure is saved once per explicit attempt, preserves the book, a
     api: { planBook: ai.planProductionBook, writeSection: async () => { writes++; throw new Error('Writing must not start after planning fails.'); } },
     onSave: async () => { saves++; },
   };
+  await assert.rejects(runProduction(project, {...options, approvalContext:{config:ai.getAIConfig()}}), {code:'APPROVAL_REQUIRED'});
+  assert.equal(calls,0,'Missing consent blocks even a configured paid provider');
   for (let attempt = 1; attempt <= 2; attempt++) {
+    options.approvalContext={approval:createProductionApproval(project,estimateProduction(project,ai.getAIConfig())),config:ai.getAIConfig(),getConfig:ai.getAIConfig};
     await assert.rejects(runProduction(project, options), error => assertSafe400(error, 'API_KEY_INVALID'));
     assert.equal(calls, attempt);
     assert.equal(writes, 0);

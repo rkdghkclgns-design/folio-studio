@@ -198,6 +198,7 @@ async function bootApp(saved = fixture(), environment = {}) {
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
   const hook = await new AsyncFunction(...Object.keys(globals), `${source}\nreturn {state:()=>state,persist,validateProject,uploadImage};`)(...Object.values(globals));
   const cleanup = async () => { for (const timer of timers) clearTimeout(timer); await win.happyDOM.close(); };
+  win.document.querySelector("[data-action=\"editor-tab\"][data-tab=\"write\"]")?.click();
   return { win, hook, local, cleanup };
 }
 

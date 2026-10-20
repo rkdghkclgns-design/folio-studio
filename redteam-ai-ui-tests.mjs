@@ -57,7 +57,8 @@ async function boot(t) {
     });
   };
   await import(`./dist/app.js?red-ai-ui=${bootNumber++}`);
-  await until(() => document.querySelector('#manuscript-text') && localStorage.getItem('folio-studio-v1'));
+  await until(() => document.querySelector('[data-action="editor-tab"][data-tab="read"]') && localStorage.getItem('folio-studio-v1'));
+  await click('[data-action="editor-tab"][data-tab="write"]');
   return { win, $, click, input, settle, until, provider, saved, persist, pauseWrites: () => { holdWrites = true; }, pendingWrites };
 }
 

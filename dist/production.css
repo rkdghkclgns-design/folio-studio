@@ -184,3 +184,38 @@
 .toolbar .diagram-tool{width:auto;padding:0 8px;gap:5px;white-space:nowrap;font-size:12px}
 .read-content,.preview-page-content{min-width:0;overflow-wrap:anywhere}
 @media(max-width:600px){.chapter-diagram-status{padding:10px 16px}.toolbar{flex-wrap:wrap;height:auto;min-height:44px;row-gap:6px;padding-top:7px;padding-bottom:7px}}
+.production-length-reference{margin:0;color:var(--muted,#657268);font-size:12px;line-height:1.8;grid-column:1/-1}
+.production-estimate-panel{padding:22px;border:1px solid #d9e2d5;border-radius:14px;background:#f3f6ef;margin:18px 0}
+.production-estimate-heading{display:flex;justify-content:space-between;gap:10px;align-items:baseline;font-size:14px;color:#2f493c}
+.production-estimate-heading>span{font-size:11px;color:#627363}
+.production-estimate-values{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:18px 0 12px}
+.production-estimate-values dt,.production-live-timing dt{font-size:12px;color:#627363;margin-bottom:6px}
+.production-estimate-values dd{margin:0;font-size:24px;font-weight:600;color:#2c4336;font-variant-numeric:tabular-nums}
+.production-estimate-values dd small,.production-live-timing dd small{display:block;font-size:14px;font-weight:400;margin-top:4px}
+.production-estimate-assumptions{font-size:12px;color:#56685c;line-height:1.85;margin-top:14px}
+.production-estimate-assumptions summary,.production-estimate-settings summary{cursor:pointer;font-weight:600;min-height:32px}
+.production-estimate-assumptions a{color:#365c47;text-decoration:underline;text-underline-offset:3px}
+.production-estimate-warning{padding:12px;background:#fff4de;color:#77511c;border-radius:8px;font-size:12px;line-height:1.7}
+.production-model-note{font-size:12px;color:#627363;overflow-wrap:anywhere}
+.production-estimate-settings{padding:16px;border:1px solid #e2e6dd;border-radius:10px;margin:12px 0}
+.production-estimate-settings .form-grid{margin:12px 0}
+.production-approval-check{display:flex;gap:10px;align-items:flex-start;padding:16px;border:1px solid #c7d7c3;border-radius:10px;background:#f8faf4;font-size:13px;line-height:1.8;cursor:pointer}
+.production-approval-check input{flex:0 0 auto;width:18px;height:18px;margin:3px 0 0;accent-color:#456451}
+.production-live{padding:24px;border:1px solid #d8e1d3;border-radius:14px;background:#f4f7f0;margin-bottom:20px}
+.production-live-head{display:flex;align-items:baseline;gap:14px;margin-bottom:12px}
+.production-live-head strong{font-size:34px;font-weight:500;color:#365242;font-variant-numeric:tabular-nums}
+.production-live-head>span{font-size:13px;color:#536957}
+.production-live progress{width:100%;height:12px;accent-color:#55705a}
+.production-live progress::-webkit-progress-bar{background:#dce5d8;border-radius:10px}
+.production-live progress::-webkit-progress-value{background:#55705a;border-radius:10px;transition:width .35s ease}
+.production-live-stages{display:flex;justify-content:space-between;gap:8px;list-style:none;padding:0;margin:20px 0}
+.production-live-stages li{display:flex;gap:7px;align-items:center;font-size:12px;color:#6e7a70}
+.production-live-stages li>span{display:grid;place-items:center;flex-shrink:0;width:23px;height:23px;border-radius:50%;background:#e3e9dd}
+.production-live-stages .is-current{color:#2d4d37;font-weight:600}
+.production-live-stages .is-current>span{background:#47694f;color:#fff}
+.production-live-stages .is-done{color:#3c6747}
+.production-live-counts{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:12px;color:#526857}
+.production-live-timing{display:grid;grid-template-columns:1fr 1fr 1.2fr;gap:12px;margin:20px 0 10px;padding-top:16px;border-top:1px solid #dce4d6}
+.production-live-timing dd{margin:0;color:#2f4937;font-size:15px;font-variant-numeric:tabular-nums}
+@media(max-width:600px){.production-estimate-panel,.production-live{padding:16px}.production-estimate-values{grid-template-columns:1fr;gap:14px}.production-live-stages{flex-wrap:wrap;gap:12px}.production-live-timing{grid-template-columns:1fr 1fr}.production-live-timing>div:last-child{grid-column:1/-1}.production-estimate-heading{flex-wrap:wrap}}
+@media(prefers-reduced-motion:reduce){.production-live progress::-webkit-progress-value{transition:none}}

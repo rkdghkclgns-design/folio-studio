@@ -74,7 +74,8 @@ async function boot(t, { workspace } = {}) {
     ai.clearAI(); await import(`./dist/app.js?folder-ui=${bootNumber++}`); await settle();
   };
   await import(`./dist/app.js?folder-ui=${bootNumber++}`);
-  await until(() => document.querySelector('#manuscript-text') && localStorage.getItem(workspaceKey));
+  await until(() => document.querySelector('[data-action="editor-tab"][data-tab="read"]') && localStorage.getItem(workspaceKey));
+  await click('[data-action="editor-tab"][data-tab="write"]');
   return { ai, install, $, $$, settle, until, click, input, key, submit, saved, save, current, attach, restart, downloads, requests, get win() { return win; } };
 }
 
@@ -111,6 +112,15 @@ async function saveBrief(app) {
   await app.submit('#production-form');
   await app.until(() => app.current()?.production);
   return app.current().production.brief;
+}
+
+async function approveStart(app) {
+ const before=app.requests.length;
+ await app.click('.modal [data-action="production-start"]');
+ assert.equal(app.requests.length,before,'Estimate must make no paid request');
+ app.$('#production-approval-check').checked=true;
+ app.$('#production-approval-check').dispatchEvent(new app.win.Event('change',{bubbles:true}));
+ await app.click('[data-action="production-approve"]');
 }
 
 test('folder picker covers descendants and offers a labelled multiple-file fallback without requesting network access', async t => {
@@ -356,7 +366,7 @@ test('explicit production receives every nested source body after folder ingesti
   await ingest(app, [file(app, '조사/첫째.md', upper), file(app, '조사/하위/다시하위/둘째.md', nested)]);
   const brief = await saveBrief(app);
   assert.equal(app.requests.length, 0);
-  await app.click('.modal [data-action="production-start"]');
+  await approveStart(app);
   await app.until(() => document.querySelector('.production-summary[data-production-status="complete"]'));
   const sourceRequests = app.requests.filter(call => call.payload.operation === 'production_source_digest');
   assert.equal(sourceRequests.length, 1);

@@ -93,6 +93,7 @@ test('Folio UI DOM integration', async t => {
   await import(`./dist/app.js?ui-test=${Date.now()}`);
   const ai = await import('./dist/ai.js');
   await settle();
+  await click("[data-action=\"editor-tab\"][data-tab=\"write\"]");
 
   await t.test('sample loads with six chapters and automatically persists a usable workspace', async () => {
     assert.equal($('.project-head h1').textContent, '느리게, 단단하게');
@@ -114,10 +115,14 @@ test('Folio UI DOM integration', async t => {
     assert.ok($('.read-content').textContent.includes('한동안 아침은'));
     await click('[data-action="editor-tab"][data-tab="write"]');
     await click('[data-action="preview"]');
-    assert.equal($$('.modal [data-action="preview-page"]').length, 6);
-    assert.equal($('.modal [data-action="preview-prev"]').disabled, true);
-    await click('.modal [data-action="preview-next"]');
-    assert.equal($('.reading-preview h1').textContent, '나만의 속도를 찾는 일');
+    await until(() => Boolean(document.querySelector('.modal [data-book-next]')), 'Paginated preview should load');
+    assert.equal($$('.modal [data-book-section] option').length, 9);
+    assert.equal($('.modal [data-book-prev]').disabled, true);
+    const initialPosition = $('.modal [data-book-position]').textContent;
+    await click('.modal [data-book-next]');
+    assert.notEqual($('.modal [data-book-position]').textContent, initialPosition);
+    await input('.modal [data-book-section]', '3', true);
+    assert.match($('.modal [data-book-stage]').textContent, /나만의 속도를 찾는 일/);
     document.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await settle();
     assert.equal(document.querySelector('.modal'), null);
@@ -206,6 +211,7 @@ test('Folio UI DOM integration', async t => {
     await input('#new-description', '매일 작은 시작을 연습하는 사람들을 위한 짧은 에세이.');
     await input('#new-content', '# 첫 장\n몇일 뒤에 할수있어요.\n\n# 둘째 장\n두 번째 장은 그대로 남아야 합니다.');
     await submit('#new-project-form');
+    await click('[data-action="editor-tab"][data-tab="write"]');
     assert.equal($('.project-head h1').textContent, '작은 연습');
     assert.equal($$('.chapter-link').length, 2);
     assert.equal($('#chapter-title').value, '첫 장');
@@ -418,6 +424,7 @@ test('Folio UI DOM integration', async t => {
     await input('#new-genre', '실용서', true);
     await input('#new-content', '나의 속도로 이야기를 써요.');
     await submit('#new-project-form');
+    await click('[data-action="editor-tab"][data-tab="write"]');
     await navigate('quality');
     await input('#writing-tone', writingTone, true);
     await input('#voice-sample', voiceSample, true);
@@ -512,6 +519,7 @@ test('Folio UI DOM integration', async t => {
     for (const timer of timers) nativeClearTimeout(timer);
     timers.clear(); await win.happyDOM.close(); setupWindow(stored);
     await import(`./dist/app.js?ui-reload=${Date.now()}`); await settle();
+  await click("[data-action=\"editor-tab\"][data-tab=\"write\"]");
     assert.equal($('#chapter-title').value, '다시 열린 원고');
     assert.equal($('#manuscript-text').value, '저장된 문장은 새로 열어도 남아 있어야 합니다.');
     assert.equal((await save()).activeId, JSON.parse(stored).activeId);

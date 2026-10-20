@@ -74,7 +74,8 @@ async function boot(t, { workspace } = {}) {
     ai.clearAI(); await import(`./dist/app.js?chapters-ui=${bootNumber++}`); await settle();
   };
   await import(`./dist/app.js?chapters-ui=${bootNumber++}`);
-  await until(() => document.querySelector('#manuscript-text') && localStorage.getItem(workspaceKey));
+  await until(() => document.querySelector('[data-action="editor-tab"][data-tab="read"]') && localStorage.getItem(workspaceKey));
+  await click('[data-action="editor-tab"][data-tab="write"]');
   return { ai, install, $, $$, settle, until, click, input, key, submit, saved, save, current, attach, restart, downloads, requests, get win() { return win; } };
 }
 
@@ -117,6 +118,15 @@ function mockedResult(payload) {
   if (payload.operation === 'production_source_digest') return { id: payload.rawSource.id, summary: '자료의 수치를 유지하라는 원시 기록입니다.', facts: [], quotes: [], unknowns: [] };
   if (payload.operation === 'production_section' || payload.operation === 'production_revision') return { content: (payload.index % 2 ? '나' : '가').repeat(payload.targetChars), notes: [], imagePrompt: '', sourceRefs: payload.sourceSummary.map(source => source.id) };
   throw new Error(`Unimplemented mocked operation: ${payload.operation}`);
+}
+
+async function approveStart(app) {
+ const before=app.requests.length;
+ await app.click('.modal [data-action="production-start"]');
+ assert.equal(app.requests.length,before,'Estimate must make no paid request');
+ app.$('#production-approval-check').checked=true;
+ app.$('#production-approval-check').dispatchEvent(new app.win.Event('change',{bubbles:true}));
+ await app.click('[data-action="production-approve"]');
 }
 
 test('300 chapters are explicitly accepted with sufficient length and preserve all book conditions without network', async t => {
@@ -204,7 +214,7 @@ test('a complete mocked 300-chapter run uses 15 planning batches and backs up ev
   await newBrief(app);
   await app.submit('#production-form'); await app.until(() => app.current()?.production);
   assert.equal(app.requests.length, 0);
-  await app.click('.modal [data-action="production-start"]');
+  await approveStart(app);
   await app.until(() => document.querySelector('.production-summary[data-production-status="complete"]'), '300-chapter mocked production did not complete');
   const book = app.current();
   assert.equal(book.chapters.length, 300);
@@ -251,7 +261,7 @@ test('interrupted outline batches survive backup/import and resume at the first 
   });
   await newBrief(app, { source: '' }); await app.submit('#production-form');
   await app.until(() => app.current()?.production);
-  await app.click('.modal [data-action="production-start"]'); await app.until(() => stalledSignal);
+  await approveStart(app); await app.until(() => stalledSignal);
   assert.equal(app.current().production.planning.chapters.length, 40);
   assert.equal(app.current().production.plan, null);
   assert.equal(app.current().chapters.length, 1, 'An unfinished outline must not replace the working manuscript');
@@ -275,7 +285,7 @@ test('interrupted outline batches survive backup/import and resume at the first 
   });
   stalledSignal = undefined;
   await app.click('[data-action="production-summary"]');
-  await app.click('.modal [data-action="production-start"]');
+  await approveStart(app);
   await app.until(() => stalledSignal);
   const resumedPlans = app.requests.slice(firstRequests).filter(request => request.payload.operation === 'production_book_plan_batch');
   assert.deepEqual(resumedPlans.map(request => request.payload.startIndex), Array.from({ length: 13 }, (_, i) => 40 + i * 20));

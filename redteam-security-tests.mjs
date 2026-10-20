@@ -2,8 +2,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { Window } from 'happy-dom';
 import { exportHTML, buildEpub } from './dist/export.js';
+import { standaloneReaderScript } from './dist/book-preview.js';
 
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=';
 const fixture = overrides => ({
@@ -71,8 +73,22 @@ test('untrusted Markdown schemes and HTML stay inert in the standalone book', as
   try {
     const payload = '</textarea><img src="https://tracking.invalid" onerror="globalThis.compromised=true"><script>bad()</script>';
     const content = `${payload}\n\n[bad](javascript:alert) [bad](data:text/html,attack) [bad](file:///private/file)\n\n[safe](https://example.invalid/)`;
-    win.document.write(await exportHTML(fixture({ title: payload, author: payload, chapters: [{ title: payload, content }] })));
-    assert.equal(win.document.querySelectorAll('script,iframe,object,embed').length, 0);
+    const project = fixture({ title: payload, author: payload, chapters: [{ title: payload, content }] });
+    const html = await exportHTML(project);
+    win.document.write(html);
+    const scripts = [...win.document.querySelectorAll('script')];
+    assert.equal(scripts.length, 1, 'Only the audited page-turning runtime may execute');
+    assert.equal(scripts[0].id, 'folio-book-runtime');
+    assert.equal(scripts[0].hasAttribute('src'), false);
+    assert.equal(scripts[0].textContent, standaloneReaderScript());
+    assert.equal(scripts[0].textContent.includes(payload), false, 'No manuscript content enters executable code');
+    const digest = createHash('sha256').update(scripts[0].textContent).digest('base64');
+    const csp = win.document.querySelector('meta[http-equiv="Content-Security-Policy"]').content;
+    assert.ok(csp.includes("script-src 'sha256-" + digest + "'"));
+    assert.equal(/script-src[^;]*(?:unsafe-inline|unsafe-eval|https?:)/.test(csp), false);
+    const printable = await exportHTML(project, { interactive: false });
+    assert.equal(/<script\b/i.test(printable), false, 'Print/PDF output remains entirely script-free');
+    assert.equal(win.document.querySelectorAll('iframe,object,embed').length, 0);
     assert.equal(win.document.querySelectorAll('img[src^="http"]').length, 0);
     for (const element of win.document.querySelectorAll('*')) {
       for (const attribute of element.attributes) assert.ok(!/^on/i.test(attribute.name));
@@ -149,6 +165,7 @@ test('import trust boundary blocks tracking and unsafe images while retaining es
   await t.test('text payloads import as text and valid embedded artwork survives', async () => {
     const payload = '</textarea><img src="https://tracking.invalid" onerror="bad()"><script>bad()</script>';
     await importBook(fixture({ title: payload, author: payload, coverImage: { src: PNG, alt: payload }, chapters: [{ title: payload, content: payload }] }));
+    await click('[data-action="editor-tab"][data-tab="write"]');
     assert.equal(win.document.querySelector('#manuscript-text').value, payload);
     await click('[data-action="editor-tab"][data-tab="read"]');
     assert.ok(win.document.querySelector('.read-content').textContent.includes(payload));

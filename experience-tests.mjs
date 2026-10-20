@@ -59,6 +59,7 @@ async function boot(t, { workspace, preferences } = {}) {
     await import(`./dist/app.js?experience=${Date.now()}-${importNumber++}`); await settle();
   };
   await import(`./dist/app.js?experience=${Date.now()}-${importNumber++}`); await settle();
+  await click('[data-action="editor-tab"][data-tab="write"]');
   return { $, $$, click, input, key, save, saved, restart, settle, downloads, get win() { return win; }, get requests() { return requests; }, preferences: () => JSON.parse(localStorage.getItem(preferenceKey)) };
 }
 
@@ -76,6 +77,8 @@ test('first visit offers a nonblocking start card; dismissal survives reload and
   assert.equal(document.querySelector('.start-card'), null);
   assert.equal(app.$('#manuscript-text'), manuscript, 'Dismissing help must not rebuild an active editor');
   await app.restart();
+  assert.equal(app.$('[data-action="editor-tab"][data-tab="read"]').getAttribute('aria-pressed'), 'true');
+  await app.click('[data-action="editor-tab"][data-tab="write"]');
   assert.equal(document.querySelector('.start-card'), null, 'A dismissed introduction must stay dismissed');
   assert.equal(app.$('#manuscript-text').value, before);
   await app.click('[data-action="help"]');
@@ -145,6 +148,7 @@ test('focus and type-size controls retain the editor node, text and selection; t
   assert.ok(app.preferences(), 'Display preferences should have their own stored record');
   assert.equal(JSON.stringify(saved).includes('fontSize'), false, 'Display preferences must not pollute manuscript backups');
   await app.restart();
+  await app.click('[data-action="editor-tab"][data-tab="write"]');
   assert.equal(app.$('#manuscript-text').value, text);
   assert.equal(app.$('[data-action="font-size"][data-size="17"]').getAttribute('aria-pressed'), 'true');
   assert.equal(app.$('[data-action="toggle-focus"]').getAttribute('aria-pressed'), 'false', 'A new session should show the full workspace');
@@ -169,7 +173,7 @@ test('each tutorial try action opens its named workspace target without editing,
     if (index === 2) assert.equal(app.$('.writing-preferences').open, true, 'The destination preferences must be expanded for a beginner');
     assert.deepEqual(manuscripts(app.saved()), before);
     assert.equal(app.requests, 0); assert.equal(app.downloads.length, 0);
-    assert.equal(document.querySelector('input[type="file"]'), null);
+    assert.equal(document.querySelector('body > input[type="file"]'), null, 'Guide navigation must not create a transient upload picker');
     assert.equal(document.querySelector('iframe'), null);
   }
 });

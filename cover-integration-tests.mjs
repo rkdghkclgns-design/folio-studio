@@ -74,7 +74,8 @@ async function boot(t, { workspace } = {}) {
     ai.clearAI(); await import(`./dist/app.js?cover-ui=${bootNumber++}`); await settle();
   };
   await import(`./dist/app.js?cover-ui=${bootNumber++}`);
-  await until(() => document.querySelector('#manuscript-text') && localStorage.getItem(workspaceKey));
+  await until(() => document.querySelector('[data-tab="write"]') && localStorage.getItem(workspaceKey));
+  await click('[data-action="editor-tab"][data-tab="write"]');
   return { ai, install, $, $$, settle, until, click, input, key, submit, saved, save, current, attach, restart, downloads, requests, get win() { return win; } };
 }
 
@@ -144,8 +145,10 @@ test('cover placement controls persist, update the preview, and survive reload',
   // happy-dom incorrectly reports the penultimate option's .value after parsing a selected last option.
   assert.equal(app.$('#cover-layout option[selected]').value, 'bottom');
   await app.click('.project-head-actions [data-action="preview"]');
-  assert.ok(app.$('.modal .cover-layout-bottom'));
-  assert.equal(app.$('.modal .cover-image-full').getAttribute('src'), PNG);
+  await app.until(() => document.querySelector('.modal .folio-book-stage .cover-heading'));
+  assert.equal(app.$('.modal .folio-book-stage .cover-heading').style.justifyContent, 'flex-end');
+  assert.equal(app.$('.modal .folio-book-stage .cover-frame > img').getAttribute('src'), PNG);
+  assert.equal(app.$('.modal .folio-book-stage .cover-frame > img').style.objectFit, 'contain');
 });
 
 test('background data and cover layout survive backup/import while a separate project is created', async t => {
@@ -219,6 +222,7 @@ test('background upload completion stays with its initial book and never redirec
   const app = await boot(t); const originalId = app.current().id; await design(app);
   const pending = await delayedImage(app, 'upload-background', 'first-book-bg.png');
   await newBook(app, '새로 고른 책'); const newId = app.current().id;
+  await app.click('[data-action="editor-tab"][data-tab="write"]');
   app.$('#manuscript-text').focus(); app.$('#manuscript-text').setSelectionRange(0, 0);
   await pending();
   assert.equal(app.saved().activeId, newId);
@@ -343,6 +347,11 @@ test('automatic book production briefs its cover from the completed manuscript a
     if (result) return jsonResponse({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(result) }] } }] });
   });
   await app.click('[data-action="production-summary"]'); await app.click('.modal [data-action="production-start"]');
+  assert.equal(app.requests.length, 0, 'Estimate must wait for approval');
+  await app.until(() => document.querySelector('#production-approval-check'));
+  app.$('#production-approval-check').checked = true;
+  app.$('#production-approval-check').dispatchEvent(new app.win.Event('change', { bubbles: true }));
+  await app.click('[data-action="production-approve"]');
   await app.until(() => app.current().production.artwork?.status === 'complete', 'Automatic artwork should finish');
   await app.until(() => document.querySelector('.production-summary'));
   const brief = app.requests.find(request => request.payload.operation === 'book_cover_brief').payload;

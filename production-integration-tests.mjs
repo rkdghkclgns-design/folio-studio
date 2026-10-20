@@ -74,7 +74,8 @@ async function boot(t, { workspace } = {}) {
     ai.clearAI(); await import(`./dist/app.js?production-ui=${bootNumber++}`); await settle();
   };
   await import(`./dist/app.js?production-ui=${bootNumber++}`);
-  await until(() => document.querySelector('#manuscript-text') && localStorage.getItem(workspaceKey));
+  await until(() => document.querySelector('[data-action=\"editor-tab\"][data-tab=\"read\"]') && localStorage.getItem(workspaceKey));
+  await click('[data-action=\"editor-tab\"][data-tab=\"write\"]');
   return { ai, install, $, $$, settle, until, click, input, key, submit, saved, save, current, attach, restart, downloads, requests, get win() { return win; } };
 }
 
@@ -93,6 +94,16 @@ async function newBrief(app, { source = rawSource, topic = '처음 독립하는 
   await app.input('#production-target-value', target);
   await app.input('#production-chapters', '2', true);
   await app.input('#production-illustrations', 'none', true);
+}
+
+async function approveStart(app, retry = false) {
+  const before = app.requests.length;
+  await app.click(retry ? '.modal [data-action="production-retry"]' : '.modal [data-action="production-start"]');
+  assert.equal(app.requests.length, before, 'Showing the cost estimate must not send a paid request');
+  assert.equal(app.$('[data-action="production-approve"]').disabled, true);
+  app.$('#production-approval-check').checked = true;
+  app.$('#production-approval-check').dispatchEvent(new app.win.Event('change', { bubbles: true }));
+  await app.click('[data-action="production-approve"]');
 }
 
 function stableBooks(state) { return state.projects.map(({ updatedAt, ...project }) => project); }
@@ -309,7 +320,7 @@ test('explicit production follows source, plan and chapter stages and saves the 
   connectMock(app);
   await newBrief(app); await app.submit('#production-form'); await app.until(() => app.current()?.production);
   assert.equal(app.requests.length, 0);
-  await app.click('.modal [data-action="production-start"]');
+  await approveStart(app);
   await app.until(() => document.querySelector('.production-summary[data-production-status="complete"]'), 'Completed summary should appear');
   const book = app.current();
   assert.deepEqual(app.requests.map(request => request.payload.operation), ['production_source_digest', 'production_book_plan', 'production_section', 'production_section']);
@@ -336,7 +347,9 @@ test('cancellation preserves completed sections and resumes without duplicating 
     }
   });
   await newBrief(app, { source: '' }); await app.submit('#production-form'); await app.until(() => app.current()?.production);
-  await app.click('.modal [data-action="production-start"]');
+  await app.key('Escape'); await app.click('[data-action="editor-tab"][data-tab="write"]');
+  await app.click('[data-action="production-summary"]');
+  await approveStart(app);
   await app.until(() => stalledSignal, 'Second chapter should wait in the mocked provider');
   assert.equal(app.current().chapters[0].content, '가'.repeat(1500));
   assert.equal(app.current().chapters[1].content, '');
@@ -352,7 +365,7 @@ test('cancellation preserves completed sections and resumes without duplicating 
   assert.equal(stalledSignal.aborted, true);
   await app.click('.modal [data-action="close-modal"]');
   await app.click('[data-action="production-summary"]');
-  await app.click('.modal [data-action="production-start"]');
+  await approveStart(app);
   await app.until(() => document.querySelector('.production-summary[data-production-status="complete"]'));
   const book = app.current();
   assert.equal(book.chapters[0].content, '가'.repeat(1500));
@@ -366,7 +379,7 @@ test('short generated results receive bounded revision and an honest target-leng
   const app = await boot(t);
   connectMock(app, ({ payload }) => productionResult(payload, { short: true }));
   await newBrief(app, { source: '' }); await app.submit('#production-form'); await app.until(() => app.current()?.production);
-  await app.click('.modal [data-action="production-start"]');
+  await approveStart(app);
   await app.until(() => document.querySelector('.production-summary[data-production-status="needs_review"]'), 'Undersized chapters need a review summary');
   const book = app.current();
   assert.equal(book.production.status, 'needs_review');
@@ -379,7 +392,7 @@ test('short generated results receive bounded revision and an honest target-leng
   assert.ok(app.$('.modal [data-action="production-retry"]'), 'Further paid corrections must require an explicit action');
   const beforeRetry = app.requests.length;
   connectMock(app);
-  await app.click('.modal [data-action="production-retry"]');
+  await approveStart(app, true);
   await app.until(() => document.querySelector('.production-summary[data-production-status="complete"]'));
   assert.deepEqual(app.requests.slice(beforeRetry).map(request => request.payload.operation), ['production_revision', 'production_revision'], 'An explicit retry must revise only the flagged sections');
   assert.equal(app.current().chapters.reduce((sum, chapter) => sum + chapter.content.length, 0), 3000);
@@ -425,7 +438,7 @@ test('a reloaded partial book resumes from saved sections after connecting again
     }
   });
   await newBrief(app, { source: '' }); await app.submit('#production-form'); await app.until(() => app.current()?.production);
-  await app.click('.modal [data-action="production-start"]'); await app.until(() => stalledSignal);
+  await approveStart(app); await app.until(() => stalledSignal);
   await app.click('[data-action="cancel-operation"]'); await app.until(() => app.current().production.status === 'paused');
   const bookId = app.current().id;
   await app.click('.modal [data-action="close-modal"]');
@@ -435,7 +448,7 @@ test('a reloaded partial book resumes from saved sections after connecting again
   connectMock(app);
   await app.click('[data-action="production-summary"]');
   const requestsBefore = app.requests.length;
-  await app.click('.modal [data-action="production-start"]');
+  await approveStart(app);
   await app.until(() => document.querySelector('.production-summary[data-production-status="complete"]'));
   assert.equal(app.requests.length, requestsBefore + 1, 'Only the unfinished chapter should be generated after reload');
   assert.equal(app.requests.at(-1).payload.index, 1);
@@ -449,7 +462,7 @@ test('production stops before an AI call when the saved workspace can no longer 
   await newBrief(app, { source: '' }); await app.submit('#production-form'); await app.until(() => app.current()?.production);
   const before = structuredClone(app.current());
   Object.defineProperty(app.win.localStorage, 'setItem', { configurable: true, value: () => { throw new DOMException('Quota exhausted', 'QuotaExceededError'); } });
-  await app.click('.modal [data-action="production-start"]');
+  await approveStart(app);
   await app.until(() => document.querySelector('.storage-recovery'));
   assert.equal(app.requests.length, 0, 'A production checkpoint must be durable before the first paid call');
   assert.deepEqual(app.current(), before);
@@ -469,7 +482,7 @@ test('failed artwork resumes after completed text without regenerating any chapt
   await newBrief(app, { source: '' });
   await app.input('#production-illustrations', 'ai', true);
   await app.submit('#production-form'); await app.until(() => app.current()?.production);
-  await app.click('.modal [data-action="production-start"]');
+  await approveStart(app);
   await app.until(() => app.current().production.artwork.status === 'failed', 'Denied image access should retain completed text');
   assert.equal(app.current().production.status, 'complete');
   const completeChapters = structuredClone(app.current().chapters);
@@ -481,7 +494,7 @@ test('failed artwork resumes after completed text without regenerating any chapt
   assert.match(app.$('.production-summary').textContent, /삽화|그림/);
   assert.ok(app.$('.modal [data-action="production-start"]'), 'An artwork failure needs an explicit resume action');
   const textRequestsBefore = app.requests.filter(request => !['production_image', 'book_cover_brief'].includes(request.payload.operation)).length;
-  await app.click('.modal [data-action="production-start"]');
+  await approveStart(app);
   await app.until(() => app.current().production.artwork.status === 'complete');
   await app.until(() => document.querySelector('.production-summary'));
   assert.equal(app.requests.filter(request => !['production_image', 'book_cover_brief'].includes(request.payload.operation)).length, textRequestsBefore, 'Artwork resume must not repeat source, planning, or text generation');
@@ -502,9 +515,10 @@ test('manual edits after a pause remain intact and prevent automatic resume from
     }
   });
   await newBrief(app); await app.submit('#production-form'); await app.until(() => app.current()?.production);
-  await app.click('.modal [data-action="production-start"]'); await app.until(() => stalledSignal);
+  await approveStart(app); await app.until(() => stalledSignal);
   await app.click('[data-action="cancel-operation"]'); await app.until(() => app.current().production.status === 'paused');
   await app.click('.modal [data-action="close-modal"]');
+  await app.click('[data-action="editor-tab"][data-tab="write"]');
   const userText = '직접 확인한 내용으로 고친 원고입니다. 이 문장은 자동 재개가 덮어쓰면 안 됩니다.';
   await app.input('#manuscript-text', userText); await app.save();
   const requestsBefore = app.requests.length;

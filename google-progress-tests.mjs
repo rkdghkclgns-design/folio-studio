@@ -49,14 +49,25 @@ async function boot(t) {
       return handler(payload, options);
     });
   };
-  await import(`./dist/app.js?google-progress=${serial++}`); await until(() => document.querySelector('#manuscript-text'));
+  await import(`./dist/app.js?google-progress=${serial++}`); await until(() => document.querySelector('[data-action=\"editor-tab\"][data-tab=\"read\"]'));
+  await click('[data-action=\"editor-tab\"][data-tab=\"write\"]');
   return { $, click, input, current, requests, mock, until, win, initial: p };
+}
+
+async function approveStart(app) {
+  const before=app.requests.length;
+  await app.click('.modal [data-action="production-start"]');
+  assert.equal(app.requests.length,before,'No generation before approval');
+  assert.equal(app.$('[data-action="production-approve"]').disabled,true);
+  app.$('#production-approval-check').checked=true;
+  app.$('#production-approval-check').dispatchEvent(new app.win.Event('change',{bubbles:true}));
+  await app.click('[data-action="production-approve"]');
 }
 
 test('planning rejection appears once and API settings return to the same saved production', async t => {
   const app = await boot(t);
   app.mock(() => response({ error: { status: 'INVALID_ARGUMENT', message: 'Untrusted <img src=x onerror=alert(1)> provider content' } }, 400));
-  await app.click('[data-action="production-summary"]'); await app.click('.modal [data-action="production-start"]');
+  await app.click('[data-action="production-summary"]'); await approveStart(app);
   await app.until(() => document.querySelector('#task-error'));
   assert.equal(app.requests.length, 1, 'No automatic extra generation request');
   assert.equal([...document.querySelectorAll('.progress-line')].filter(el => el.textContent === '책의 목차를 구성하고 있습니다.').length, 1, 'Repeated planning notifications collapse');
@@ -86,7 +97,7 @@ test('a mid-book failure preserves completed manuscript and distinct stages with
     if (payload.operation === 'production_section' && written++ === 0) return completion({ content: '가'.repeat(payload.targetChars), notes: [], imagePrompt: '', sourceRefs: [] });
     return response({ error: { status: 'PERMISSION_DENIED' } }, 403);
   });
-  await app.click('[data-action="production-summary"]'); await app.click('.modal [data-action="production-start"]'); await app.until(() => document.querySelector('#task-error'));
+  await app.click('[data-action="production-summary"]'); await approveStart(app); await app.until(() => document.querySelector('#task-error'));
   const stored = app.current(), lines = [...document.querySelectorAll('.progress-line')].map(el => el.textContent);
   assert.ok(stored.chapters[0].content.length >= 500);
   assert.equal(stored.chapters[1].content, '');
@@ -103,7 +114,7 @@ test('a mid-book failure preserves completed manuscript and distinct stages with
 test('cancellation has one status notice and keeps the saved production resumable', async t => {
   const app = await boot(t);
   app.mock((payload, options) => new Promise((resolve, reject) => options.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })));
-  await app.click('[data-action="production-summary"]'); await app.click('.modal [data-action="production-start"]'); await app.until(() => app.requests.length > 0);
+  await app.click('[data-action="production-summary"]'); await approveStart(app); await app.until(() => app.requests.length > 0);
   await app.click('[data-action="cancel-operation"]'); await app.until(() => document.querySelector('#task-error'));
   assert.equal(app.current().production.status, 'paused');
   assert.equal(app.$('#task-error').getAttribute('role'), 'status');

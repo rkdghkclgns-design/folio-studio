@@ -74,7 +74,8 @@ async function boot(t, { workspace } = {}) {
     ai.clearAI(); await import(`./dist/app.js?image-source-ui=${bootNumber++}`); await settle();
   };
   await import(`./dist/app.js?image-source-ui=${bootNumber++}`);
-  await until(() => document.querySelector('#manuscript-text') && localStorage.getItem(workspaceKey));
+  await until(() => document.querySelector('[data-action="editor-tab"][data-tab="read"]') && localStorage.getItem(workspaceKey));
+  await click('[data-action="editor-tab"][data-tab="write"]');
   return { ai, install, $, $$, settle, until, click, input, key, submit, saved, save, current, attach, restart, downloads, requests, get win() { return win; } };
 }
 
@@ -134,6 +135,15 @@ function connectMock(app, handler = () => undefined) {
     if (result instanceof Response) return result;
     return jsonResponse({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(result ?? mockedResult(payload)) }] } }] });
   });
+}
+
+async function approveStart(app) {
+ const before=app.requests.length;
+ await app.click('.modal [data-action="production-start"]');
+ assert.equal(app.requests.length,before,'Estimate must make no paid request');
+ app.$('#production-approval-check').checked=true;
+ app.$('#production-approval-check').dispatchEvent(new app.win.Event('change',{bubbles:true}));
+ await app.click('[data-action="production-approve"]');
 }
 
 test('mixed folder controls accept Markdown and raster images and show every nested image before any API request', async t => {
@@ -325,7 +335,7 @@ test('explicit production sends each nested image as multimodal input and uses a
   await ingest(app, [file(app, '연구/원문.md', '# 원시 기록'), ...paths.map(path => file(app, path))]);
   await saveBrief(app);
   assert.equal(app.requests.length, 0);
-  await app.click('.modal [data-action="production-start"]');
+  await approveStart(app);
   await app.until(() => document.querySelector('.production-summary[data-production-status="complete"]'), 'Mixed source mocked production did not complete');
   const imageCalls = app.requests.filter(call => call.payload?.operation === 'production_image_digest');
   assert.equal(imageCalls.length, 2);
@@ -354,7 +364,7 @@ test('image-only production reaches planning and writing with image references a
   await newBrief(app, { topic: '' });
   await ingest(app, [file(app, '사진집/안쪽/관찰.png')]);
   await saveBrief(app);
-  await app.click('.modal [data-action="production-start"]');
+  await approveStart(app);
   await app.until(() => document.querySelector('.production-summary[data-production-status="complete"]'), 'Image-only mocked production did not complete');
   assert.equal(app.requests.filter(call => call.payload?.operation === 'production_source_digest').length, 0);
   const plan = app.requests.find(call => call.payload?.operation === 'production_book_plan');
@@ -375,13 +385,13 @@ test('cancelling during a later image analysis saves earlier analyses and resume
   await newBrief(app, { topic: '' });
   await ingest(app, [file(app, '사진/1.png'), file(app, '사진/2.png')]);
   await saveBrief(app);
-  await app.click('.modal [data-action="production-start"]'); await app.until(() => blocked);
+  await approveStart(app); await app.until(() => blocked);
   await app.click('.modal [data-action="cancel-operation"]');
   await app.until(() => app.current().production.status === 'paused');
   await app.until(() => document.querySelector('.modal [data-action="close-modal"]'));
   await app.key('Escape');
   await app.click('[data-action="production-summary"]');
-  await app.click('.modal [data-action="production-start"]');
+  await approveStart(app);
   await app.until(() => document.querySelector('.production-summary[data-production-status="complete"]'), 'Paused image-only production did not resume');
   const calls = app.requests.filter(call => call.payload?.operation === 'production_image_digest');
   assert.deepEqual(calls.map(call => call.payload.rawSourceImage.id), ['image-source-1', 'image-source-2', 'image-source-2']);
@@ -414,7 +424,7 @@ test('provider image-analysis text is escaped in saved summaries and unverified 
   await newBrief(app, { topic: '' });
   await ingest(app, [file(app, '사진/관찰.png')]);
   await saveBrief(app);
-  await app.click('.modal [data-action="production-start"]');
+  await approveStart(app);
   await app.until(() => document.querySelector('.production-summary[data-production-status="complete"]'));
   const summary = app.$('.production-image-digest');
   assert.ok(summary.textContent.includes(unsafe));
