@@ -122,3 +122,42 @@ test('a brief remains internally consistent if editing occurs while its chapter 
     else {const chapter=result[0].value.chapters[0];assert.equal(chapter.chapterHash,await visualChapterHash({title:chapter.chapterTitle,content:chapter.content}));}
   } finally {crypto.subtle.digest=original;release();}
 });
+
+test('multiple figures in one chapter follow their explanatory paragraphs and keep order at a shared anchor', async () => {
+  const p=project(),incoming=await bundle(p);const first=incoming.assets[0];
+  first.placement={after:'첫째 문단.'};
+  incoming.assets.push({...clone(first),figure:image('diagram','visual-second')});
+  incoming.assets.push({...clone(first),placement:{after:'둘째 문단.'},figure:image('diagram','visual-third')});
+  const plan=await planVisualImport(p,incoming),next=applyVisualImport(p,plan),text=next.chapters[0].content;
+  assert.equal(plan.added,3);assert.equal(next.chapters[0].figures.length,3);
+  assert.ok(text.indexOf('첫째 문단.')<text.indexOf('folio-asset:visual-1'));
+  assert.ok(text.indexOf('folio-asset:visual-1')<text.indexOf('folio-asset:visual-second'));
+  assert.ok(text.indexOf('folio-asset:visual-second')<text.indexOf('둘째 문단.'));
+  assert.ok(text.indexOf('둘째 문단.')<text.indexOf('folio-asset:visual-third'));
+  const again=await planVisualImport(next,incoming);assert.equal(again.skipped,3);assert.deepEqual(applyVisualImport(next,again),next);
+});
+
+test('placement rejects missing, repeated, partial and fenced anchors before changing the book', async () => {
+  for(const [content,anchor] of [['첫째 문단.\n\n둘째 문단.','없음'],['반복\n\n반복','반복'],['긴 문단 중간입니다.','문단 중간입니다.'],['도입\n\n```md\n\n코드 문단\n\n```','코드 문단'],['도입\n\n    코드 문단\n\n끝','    코드 문단']]){
+    const p=project();p.chapters[0].content=content;const incoming=await bundle(p);incoming.assets[0].placement={after:anchor};
+    const before=JSON.stringify(p);await assert.rejects(()=>planVisualImport(p,incoming));assert.equal(JSON.stringify(p),before);
+  }
+  const p=project();p.chapters[0].content='```\ncode\n```\n\n설명 문단\n\n끝';const incoming=await bundle(p);incoming.assets[0].placement={after:'설명 문단'};
+  assert.equal((await planVisualImport(p,incoming)).added,1);
+});
+
+test('multiple incoming figures share cumulative per-chapter media and manuscript limits', async () => {
+  const p=project();p.chapters[0].figures=Array.from({length:19},(_,i)=>image('diagram','old-'+i));
+  const incoming=await bundle(p);incoming.assets.push({...clone(incoming.assets[0]),figure:image('diagram','another')});
+  await assert.rejects(()=>planVisualImport(p,incoming),/20/);
+  const long=project();long.chapters[0].content='가'.repeat(499950);const b=await bundle(long);
+  b.assets[0].figure.alt='설명';b.assets.push({...clone(b.assets[0]),figure:{...image('diagram','another'),alt:'설명'}});
+  await assert.rejects(()=>planVisualImport(long,b),/한도/);
+});
+
+test('brief and visible guidance prioritize explanation rather than filling every chapter with pictures', async t => {
+  const p=project(),brief=await createVisualBrief(p);assert.equal(brief.workflow.perChapterQuota,false);
+  assert.match(brief.instructions.join(' '),/그림 없이 충분하면 넣지/);assert.match(brief.instructions.join(' '),/여러 개/);
+  const win=new Window();t.after(()=>win.close());win.document.body.innerHTML=renderVisualInstructions(p);
+  assert.equal(win.document.querySelector('progress'),null);assert.match(win.document.body.textContent,/장별 할당량 없음/);
+});

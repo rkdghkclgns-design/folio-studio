@@ -457,7 +457,7 @@ test('visual result paste reviews first, applies only on its button and retains 
   assert.equal(applied.chapters[0].figures.length,1);assert.deepEqual(applied.chapters[0].figures[0].provenance,result.assets[0].figure.provenance);
   assert.deepEqual(applied.chapters[1],original.chapters[1]);assert.deepEqual(applied.bookMatter,original.bookMatter);
   const history=app.saved().histories[original.id];assert.equal(history[0].project.chapters[0].content,sourceContent);
-  assert.match(app.$('.visual-workflow').textContent,/1 \/ 2개 장 보강/);
+  assert.match(app.$('.visual-workflow').textContent,/1개 장에서 사용/);
   assert.equal(app.requests.length,0);
   await app.restart();assert.equal(app.current().id,original.id);assert.deepEqual(app.current().chapters,applied.chapters);
   await app.click('[data-action="chapter-diagram"]');await pasteVisualResult(app,json);
