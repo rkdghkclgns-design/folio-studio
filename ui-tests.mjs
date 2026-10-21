@@ -220,11 +220,11 @@ test('Folio UI DOM integration', async t => {
     assert.notEqual(stored.projects[0].id, stored.activeId);
   });
 
-  await t.test('local automatic preparation corrects prose, adds art, and is reversible', async () => {
+  await t.test('local automatic preparation corrects prose without inserting unrelated art and is reversible', async () => {
     await click('[data-action="autopilot"]'); await click('[data-action="run-local"]');
     assert.equal($('#manuscript-text').value, '며칠 뒤에 할 수 있어요.');
     let project = await currentProject();
-    assert.equal(project.chapters.filter(chapter => chapter.image).length, 2);
+    assert.equal(project.chapters.filter(chapter => chapter.image).length, 0);
     await click('[data-action="history"]');
     assert.match($('.history-item').textContent, /기본 자동 정리 전/);
     await click('.history-item [data-action="restore"]');
